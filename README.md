@@ -1,10 +1,10 @@
 # go-githublistener
 
-Register your new application on Github: github.com/settings/applications/new
+Register your new application on Github: https://github.com/settings/applications/new
 
-In the "callback URL" field, enter "http://localhost:8080/oauth/redirect".
+In the "callback URL" field, enter http://localhost:8080/oauth/redirect
 
-Once you register, you will get a client ID and client secret.
+Once you register, you will get a client ID and client secret
 
 Replace the values of the clientID and clientSecret variables in the main.go file and also the index.html file
 
