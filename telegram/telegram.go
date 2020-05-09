@@ -20,7 +20,7 @@ func InitTelegram(token, proxyHost, proxyPort, proxyUser, proxyPassword string, 
 			DialContext: func(_ context.Context, network, addr string) (net.Conn, error) {
 				socksDialer, err := proxy.SOCKS5(
 					"tcp",
-					fmt.Sprintf("%s:%d", proxyHost, proxyPort),
+					fmt.Sprintf("%s:%s", proxyHost, proxyPort),
 					&proxy.Auth{User: proxyUser, Password: proxyPassword},
 					proxy.Direct,
 				)

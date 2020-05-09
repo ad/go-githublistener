@@ -137,7 +137,7 @@ func QuerySQLList(db *sql.DB, sql string, returnModel interface{}) ([]reflect.Va
 func AddUserIfNotExist(db *sql.DB, user GithubUser) error {
 	var returnModel GithubUser
 
-	result, err := QuerySQLObject(db, fmt.Sprintf(`SELECT id, name, user_name, token, created_at FROM github_users WHERE user_name = %d;`, user.UserName), returnModel)
+	result, err := QuerySQLObject(db, fmt.Sprintf(`SELECT id, name, user_name, token, created_at FROM github_users WHERE user_name = %s;`, user.UserName), returnModel)
 	if err != nil {
 		log.Println(err)
 	}
