@@ -2,25 +2,54 @@ package main
 
 import (
 	"encoding/json"
+	"flag"
 	"fmt"
 	"io/ioutil"
+	"log"
 	"net/http"
 	"os"
+	"strconv"
 	"time"
 )
 
-const clientID = ""
-const clientSecret = ""
+const version = "0.0.1"
 
 var (
 	client = http.Client{
 		Timeout: time.Duration(5 * time.Second),
 	}
+
+	clientID     string
+	clientSecret string
+	httpPort     int
 )
 
 func main() {
-	fs := http.FileServer(http.Dir("public"))
-	http.Handle("/", fs)
+	log.Printf("Started version %s", version)
+
+	flag.StringVar(&clientID, "client_id", lookupEnvOrString("GO_GITHUB_CLIENT_ID", clientID), "github client id")
+	flag.StringVar(&clientSecret, "client_secret", lookupEnvOrString("GO_GITHUB_CLIENT_SECRET", clientSecret), "github client secret")
+	flag.IntVar(&httpPort, "http_port", lookupEnvOrInt("GO_GITHUB_LISTENER_PORT", 8080), "bot http port")
+
+	flag.Parse()
+	log.SetFlags(0)
+
+	http.HandleFunc("/", func(w http.ResponseWriter, r *http.Request) {
+		indexHTML := `<!DOCTYPE html>
+<html>
+	<head>
+        <meta charset="utf-8" />
+        <meta http-equiv="X-UA-Compatible" content="IE=edge">
+        <title>Github auth</title>
+        <meta name="viewport" content="width=device-width, initial-scale=1">
+	</head>
+	<body>
+        <a href="https://github.com/login/oauth/authorize?client_id=` + clientID + `&redirect_uri=http://localhost:8080/oauth/redirect&state=somerandomstring">Login with github</a>
+	</body>
+</html>`
+
+		w.Write([]byte(indexHTML))
+	})
 
 	http.HandleFunc("/oauth/redirect", func(w http.ResponseWriter, r *http.Request) {
 		err := r.ParseForm()
@@ -130,7 +159,9 @@ func main() {
 		w.Write([]byte(fmt.Sprintf("%#v", commits)))
 	})
 
-	http.ListenAndServe(":8080", nil)
+	log.Printf("Listening on port %d", httpPort)
+
+	log.Fatal(http.ListenAndServe("0.0.0.0:"+strconv.Itoa(httpPort), nil))
 }
 
 type OAuthAccessResponse struct {
@@ -180,4 +211,20 @@ func makeRequest(url, token string) ([]byte, error) {
 	}
 
 	return body, nil
+}
+
+func lookupEnvOrString(key string, defaultVal string) string {
+	if val, ok := os.LookupEnv(key); ok {
+		return val
+	}
+	return defaultVal
+}
+
+func lookupEnvOrInt(key string, defaultVal int) int {
+	if val, ok := os.LookupEnv(key); ok {
+		if x, err := strconv.Atoi(val); err == nil {
+			return x
+		}
+	}
+	return defaultVal
 }
