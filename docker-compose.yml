@@ -4,6 +4,8 @@ services:
     image: github.com/ad/go-githublistener:latest
     ports:
       - 8080:8080
+    volumes:
+      - ./db:/db
     environment:
       - GO_GITHUB_LISTENER_PORT=${GO_GITHUB_LISTENER_PORT}
       - GO_GITHUB_LISTENER_CLIENT_ID=${GO_GITHUB_LISTENER_CLIENT_ID}

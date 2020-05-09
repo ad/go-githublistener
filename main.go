@@ -11,16 +11,20 @@ import (
 	"strconv"
 	"time"
 
-	tgbotapi "gopkg.in/telegram-bot-api.v4"
+	database "github.com/ad/go-githublistener/db"
+	telegram "github.com/ad/go-githublistener/telegram"
 
-	"github.com/ad/go-githublistener/telegram"
+	sql "github.com/lazada/sqle"
+	tgbotapi "gopkg.in/telegram-bot-api.v4"
 )
 
 const version = "0.0.1"
 
 var (
-	bot *tgbotapi.BotAPI
 	err error
+
+	bot *tgbotapi.BotAPI
+	db  *sql.DB
 
 	httpClient = http.Client{
 		Timeout: time.Duration(5 * time.Second),
@@ -55,6 +59,14 @@ func main() {
 	flag.Parse()
 	log.SetFlags(0)
 
+	// Init DB
+	db, err = database.InitDB()
+	if err != nil {
+		log.Printf("Failed to open database: %#+v\n", err)
+		return
+	}
+	defer db.Close()
+
 	// Init telegram
 	bot, err = telegram.InitTelegram(telegramToken, telegramProxyHost, telegramProxyPort, telegramProxyUser, telegramProxyPassword, telegramDebug)
 	if err != nil {
@@ -74,7 +86,19 @@ func main() {
 				continue
 			}
 
-			log.Printf("%s [%d] %s", update.Message.From.UserName, update.Message.From.ID, update.Message.Text)
+			log.Printf("%s: %s [%d] %s", update.Message.Date, update.Message.From.UserName, update.Message.From.ID, update.Message.Text)
+
+			message := database.TelegramMessage{
+				UserID:   update.Message.From.ID,
+				UserName: update.Message.From.UserName,
+				Message:  update.Message.Text,
+				Date:     time.Unix(int64(update.Message.Date), 0),
+			}
+
+			err := database.StoreTelegramMessage(db, message)
+			if err != nil {
+				log.Println(err)
+			}
 
 			msg := tgbotapi.NewMessage(update.Message.Chat.ID, update.Message.Text)
 			msg.ReplyToMessageID = update.Message.MessageID
@@ -213,31 +237,37 @@ func main() {
 	log.Fatal(http.ListenAndServe("0.0.0.0:"+strconv.Itoa(httpPort), nil))
 }
 
+// OAuthAccessResponse ...
 type OAuthAccessResponse struct {
 	AccessToken string `json:"access_token"`
 }
 
+// UserResponse ...
 type UserResponse struct {
 	Name     string `json:"name"`
 	UserName string `json:"login"`
 }
 
+// Repo ...
 type Repo struct {
 	Name     string `json:"name"`
 	FullName string `json:"full_name"`
 	PushedAt string `json:"pushed_at"`
 }
 
+// CommitItem ...
 type CommitItem struct {
 	Commit Commit `json:"commit"`
 	URL    string `json:"url"`
 }
 
+// Commit ...
 type Commit struct {
 	Author  Author `json:"author"`
 	Message string `json:"message"`
 }
 
+// Author ...
 type Author struct {
 	Name  string `json:"name"`
 	Email string `json:"email"`

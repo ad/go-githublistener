@@ -4,13 +4,15 @@ TAG = latest
 CWD = $(shell pwd)
 
 build: #test 
+	@touch db/githublistener.db
 	@docker build -t $(IMG):$(TAG) .
 
 devbuild: #test 
+	@touch db/githublistener.db
 	@docker build -t $(IMG):$(DEV-TAG) . -f Dockerfile-dev
 
 test:
-	@docker run --rm -v $(CWD):$(CWD) -w $(CWD) golang:alpine sh -c "CGO_ENABLED=0 go test -mod=vendor -v"
+	@docker run --rm -v $(CWD):$(CWD) -w $(CWD) golang:alpine sh -c "go test -mod=vendor -v"
 
 clean:
 	@docker-compose -f docker-compose.dev.yml rm -sfv
