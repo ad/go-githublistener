@@ -10,29 +10,78 @@ import (
 	"os"
 	"strconv"
 	"time"
+
+	tgbotapi "gopkg.in/telegram-bot-api.v4"
+
+	"github.com/ad/go-githublistener/telegram"
 )
 
 const version = "0.0.1"
 
 var (
-	client = http.Client{
+	bot *tgbotapi.BotAPI
+	err error
+
+	httpClient = http.Client{
 		Timeout: time.Duration(5 * time.Second),
 	}
 
 	clientID     string
 	clientSecret string
 	httpPort     int
+
+	telegramToken         string
+	telegramProxyHost     string
+	telegramProxyPort     string
+	telegramProxyUser     string
+	telegramProxyPassword string
+	telegramDebug         bool
 )
 
 func main() {
 	log.Printf("Started version %s", version)
 
-	flag.StringVar(&clientID, "client_id", lookupEnvOrString("GO_GITHUB_CLIENT_ID", clientID), "github client id")
-	flag.StringVar(&clientSecret, "client_secret", lookupEnvOrString("GO_GITHUB_CLIENT_SECRET", clientSecret), "github client secret")
+	flag.StringVar(&clientID, "client_id", lookupEnvOrString("GO_GITHUB_LISTENER_CLIENT_ID", clientID), "github client id")
+	flag.StringVar(&clientSecret, "client_secret", lookupEnvOrString("GO_GITHUB_LISTENER_CLIENT_SECRET", clientSecret), "github client secret")
 	flag.IntVar(&httpPort, "http_port", lookupEnvOrInt("GO_GITHUB_LISTENER_PORT", 8080), "bot http port")
+
+	flag.StringVar(&telegramToken, "telegramToken", lookupEnvOrString("GO_GITHUB_LISTENER_TELEGRAM_TOKEN", telegramToken), "telegramToken")
+	flag.StringVar(&telegramProxyHost, "telegramProxyHost", lookupEnvOrString("GO_GITHUB_LISTENER_TELEGRAM_PROXY_HOST", telegramProxyHost), "telegramProxyHost")
+	flag.StringVar(&telegramProxyPort, "telegramProxyPort", lookupEnvOrString("GO_GITHUB_LISTENER_TELEGRAM_PROXY_PORT", telegramProxyPort), "telegramProxyPort")
+	flag.StringVar(&telegramProxyUser, "telegramProxyUser", lookupEnvOrString("GO_GITHUB_LISTENER_TELEGRAM_PROXY_USER", telegramProxyUser), "telegramProxyUser")
+	flag.StringVar(&telegramProxyPassword, "telegramProxyPassword", lookupEnvOrString("GO_GITHUB_LISTENER_TELEGRAM_PROXY_PASSWORD", telegramProxyPassword), "telegramProxyPassword")
+	flag.BoolVar(&telegramDebug, "telegramDebug", lookupEnvOrBool("GO_GITHUB_LISTENER_TELEGRAM_DEBUG", telegramDebug), "telegramDebug")
 
 	flag.Parse()
 	log.SetFlags(0)
+
+	// Init telegram
+	bot, err = telegram.InitTelegram(telegramToken, telegramProxyHost, telegramProxyPort, telegramProxyUser, telegramProxyPassword, telegramDebug)
+	if err != nil {
+		log.Fatal("fail on telegram login:", err)
+	}
+
+	u := tgbotapi.NewUpdate(0)
+	u.Timeout = 60
+	updates, err := bot.GetUpdatesChan(u)
+	if err != nil {
+		log.Fatalf("[INIT] [Failed to init Telegram updates chan: %v]", err)
+	}
+
+	go func() {
+		for update := range updates {
+			if update.Message == nil { // ignore any non-Message Updates
+				continue
+			}
+
+			log.Printf("%s [%d] %s", update.Message.From.UserName, update.Message.From.ID, update.Message.Text)
+
+			msg := tgbotapi.NewMessage(update.Message.Chat.ID, update.Message.Text)
+			msg.ReplyToMessageID = update.Message.MessageID
+
+			bot.Send(msg)
+		}
+	}()
 
 	http.HandleFunc("/", func(w http.ResponseWriter, r *http.Request) {
 		indexHTML := `<!DOCTYPE html>
@@ -67,7 +116,7 @@ func main() {
 		}
 		req.Header.Set("accept", "application/json")
 
-		res, err := client.Do(req)
+		res, err := httpClient.Do(req)
 		if err != nil {
 			fmt.Fprintf(os.Stdout, "could not send HTTP request: %v", err)
 			w.WriteHeader(http.StatusInternalServerError)
@@ -199,7 +248,7 @@ func makeRequest(url, token string) ([]byte, error) {
 	request, err := http.NewRequest("GET", url, nil)
 	request.Header.Set("Authorization", "token "+token)
 
-	resp, err := client.Do(request)
+	resp, err := httpClient.Do(request)
 	if err != nil {
 		return nil, err
 	}
@@ -224,6 +273,18 @@ func lookupEnvOrInt(key string, defaultVal int) int {
 	if val, ok := os.LookupEnv(key); ok {
 		if x, err := strconv.Atoi(val); err == nil {
 			return x
+		}
+	}
+	return defaultVal
+}
+
+func lookupEnvOrBool(key string, defaultVal bool) bool {
+	if val, ok := os.LookupEnv(key); ok {
+		if val == "true" {
+			return true
+		}
+		if val == "false" {
+			return false
 		}
 	}
 	return defaultVal

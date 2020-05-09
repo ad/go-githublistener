@@ -14,6 +14,7 @@ GO_GITHUB_CLIENT_ID=
 
 GO_GITHUB_CLIENT_SECRET=
 
+GO_GITHUB_LISTENER_TELEGRAM_TOKEN=
 
 Start the server by executing make dev or make up
 
