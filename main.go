@@ -109,17 +109,20 @@ func main() {
 							msg.Text = "Hi, " + user.Name
 
 							ghuser := &database.GithubUser{
-								TelegramUserID: strconv.Itoa(update.Message.From.ID),
 								Name:           user.Name,
 								UserName:       user.UserName,
 								Token:          update.Message.CommandArguments(),
+								TelegramUserID: strconv.Itoa(update.Message.From.ID),
 							}
 
-							if err := database.AddUserIfNotExist(db, ghuser); err != nil {
+							dbuser, err := database.AddUserIfNotExist(db, ghuser)
+
+							if err != nil && err.Error() != "already exists" {
 								msg.Text += "\nError on save your token, try /start again\n" + err.Error()
-							}
+								bot.Send(msg)
 
-							bot.Send(msg)
+								return
+							}
 
 							if repos, err := getGithubUserRepos(update.Message.CommandArguments(), user.UserName); err == nil {
 								msg := tgbotapi.NewMessage(update.Message.Chat.ID, "")
@@ -131,10 +134,10 @@ func main() {
 										RepoName: repo.FullName,
 									}
 
-									if err := database.AddRepoIfNotExist(db, ghrepo); err != nil {
+									if dbrepo, err := database.AddRepoIfNotExist(db, ghrepo); err != nil && err.Error() != "already exists" {
 										//msg.Text += "\nError on save your repo, try again\n" + err.Error()
 									} else {
-										if err := database.AddRepoLinkIfNotExist(db, ghuser, ghrepo, repo.PushedAt); err != nil {
+										if err := database.AddRepoLinkIfNotExist(db, dbuser, dbrepo, repo.PushedAt); err != nil && err.Error() != "already exists" {
 											//msg.Text += "\nError on save your repo-to-user link, try again\n" + err.Error()
 										} else {
 
@@ -167,10 +170,11 @@ func main() {
 							msg.Text += "Your repos list:\n"
 
 							ghuser := &database.GithubUser{
-								TelegramUserID: strconv.Itoa(update.Message.From.ID),
+								ID:             user.ID,
 								Name:           user.Name,
 								UserName:       user.UserName,
 								Token:          update.Message.CommandArguments(),
+								TelegramUserID: strconv.Itoa(update.Message.From.ID),
 							}
 
 							for _, repo := range repos {
@@ -181,10 +185,10 @@ func main() {
 									RepoName: repo.FullName,
 								}
 
-								if err := database.AddRepoIfNotExist(db, ghrepo); err != nil {
+								if dbrepo, err := database.AddRepoIfNotExist(db, ghrepo); err != nil && err.Error() != "already exists" {
 									//msg.Text += "\nError on save your repo, try again\n" + err.Error()
 								} else {
-									if err := database.AddRepoLinkIfNotExist(db, ghuser, ghrepo, repo.PushedAt); err != nil {
+									if err := database.AddRepoLinkIfNotExist(db, ghuser, dbrepo, repo.PushedAt); err != nil && err.Error() != "already exists" {
 										//msg.Text += "\nError on save your repo-to-user link, try again\n" + err.Error()
 									} else {
 

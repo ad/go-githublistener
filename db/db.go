@@ -41,8 +41,8 @@ type GithubRepo struct {
 // UserRepo ...
 type UserRepo struct {
 	ID        int64     `sql:"id"`
-	Name      int       `sql:"user_id"`
-	RepoName  int       `sql:"repo_id"`
+	UserID    int       `sql:"user_id"`
+	RepoID    int       `sql:"repo_id"`
 	CreatedAt time.Time `sql:"created_at"`
 	PushedAt  time.Time `sql:"pushed_at"`
 }
@@ -178,16 +178,16 @@ func QuerySQLList(db *sql.DB, sql string, returnModel interface{}) ([]reflect.Va
 }
 
 // AddUserIfNotExist ...
-func AddUserIfNotExist(db *sql.DB, user *GithubUser) error {
+func AddUserIfNotExist(db *sql.DB, user *GithubUser) (*GithubUser, error) {
 	var returnModel GithubUser
 
 	result, err := QuerySQLObject(db, fmt.Sprintf(`SELECT * FROM github_users WHERE user_name = '%s';`, user.UserName), returnModel)
 	if err != nil {
-		return err
+		return nil, err
 	}
 	if returnModel, ok := result.Interface().(*GithubUser); ok && returnModel.UserName != "" {
-		user.ID = returnModel.ID
-		return fmt.Errorf("%s already added at %s\n", returnModel.UserName, returnModel.CreatedAt)
+		log.Printf("already exists: %#v", returnModel)
+		return returnModel, fmt.Errorf("already exists")
 	}
 
 	res, err := db.Exec(
@@ -199,26 +199,28 @@ func AddUserIfNotExist(db *sql.DB, user *GithubUser) error {
 	)
 
 	if err != nil {
-		return err
+		return nil, err
 	}
 
 	user.ID, _ = res.LastInsertId()
-	log.Printf("%s (%d) added at %s\n", user.UserName, user.ID, time.Now())
+	user.CreatedAt = time.Now()
 
-	return nil
+	log.Printf("%s (%d) added at %s\n", user.UserName, user.ID, user.CreatedAt)
+
+	return user, nil
 }
 
 // AddRepoIfNotExist ...
-func AddRepoIfNotExist(db *sql.DB, repo *GithubRepo) error {
+func AddRepoIfNotExist(db *sql.DB, repo *GithubRepo) (*GithubRepo, error) {
 	var returnModel GithubRepo
 
 	result, err := QuerySQLObject(db, fmt.Sprintf(`SELECT * FROM github_repos WHERE repo_name = '%s';`, repo.RepoName), returnModel)
 	if err != nil {
-		return err
+		return nil, err
 	}
 	if returnModel, ok := result.Interface().(*GithubRepo); ok && returnModel.RepoName != "" {
-		repo.ID = returnModel.ID
-		return fmt.Errorf("%s already added at %s", returnModel.RepoName, returnModel.CreatedAt)
+		log.Printf("already exists: %#v", returnModel)
+		return returnModel, fmt.Errorf("already exists")
 	}
 	res, err := db.Exec(
 		"INSERT INTO github_repos (name, repo_name) VALUES (?, ?);",
@@ -227,25 +229,28 @@ func AddRepoIfNotExist(db *sql.DB, repo *GithubRepo) error {
 	)
 
 	if err != nil {
-		return err
+		return nil, err
 	}
 
 	repo.ID, _ = res.LastInsertId()
-	log.Printf("%s (%d) added at %s\n", repo.RepoName, repo.ID, time.Now())
+	repo.CreatedAt = time.Now()
 
-	return nil
+	log.Printf("%s (%d) added at %s\n", repo.RepoName, repo.ID, repo.CreatedAt)
+
+	return repo, nil
 }
 
 // AddRepoLinkIfNotExist ...
 func AddRepoLinkIfNotExist(db *sql.DB, user *GithubUser, repo *GithubRepo, pushedAt time.Time) error {
-	var returnModel GithubRepo
+	var returnModel UserRepo
 
 	result, err := QuerySQLObject(db, fmt.Sprintf(`SELECT * FROM users_repos WHERE user_id = %d AND repo_id = %d;`, user.ID, repo.ID), returnModel)
 	if err != nil {
 		return err
 	}
-	if returnModel, ok := result.Interface().(*GithubRepo); ok && returnModel.RepoName != "" {
-		return fmt.Errorf("%s already added at %s", returnModel.RepoName, returnModel.CreatedAt)
+	if returnModel, ok := result.Interface().(*UserRepo); ok && returnModel.UserID > 0 && returnModel.RepoID > 0 {
+		log.Printf("already exists: %#v", returnModel)
+		return fmt.Errorf("already exists")
 	}
 
 	res, err := db.Exec(
