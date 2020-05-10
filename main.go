@@ -18,7 +18,7 @@ import (
 	tgbotapi "gopkg.in/telegram-bot-api.v4"
 )
 
-const version = "0.0.2"
+const version = "0.0.3"
 
 var (
 	err error
@@ -108,7 +108,7 @@ func main() {
 						if user, err := getGithubUser(update.Message.CommandArguments()); err == nil {
 							msg.Text = "Hi, " + user.Name
 
-							ghuser := database.GithubUser{
+							ghuser := &database.GithubUser{
 								TelegramUserID: strconv.Itoa(update.Message.From.ID),
 								Name:           user.Name,
 								UserName:       user.UserName,
@@ -116,7 +116,7 @@ func main() {
 							}
 
 							if err := database.AddUserIfNotExist(db, ghuser); err != nil {
-								msg.Text += "\nError on save your token, try /start again"
+								msg.Text += "\nError on save your token, try /start again\n" + err.Error()
 							}
 
 							bot.Send(msg)
@@ -124,7 +124,22 @@ func main() {
 							if repos, err := getGithubUserRepos(update.Message.CommandArguments(), user.UserName); err == nil {
 								msg := tgbotapi.NewMessage(update.Message.Chat.ID, "")
 								for _, repo := range repos {
-									msg.Text += repo.Name + " - " + repo.FullName + " / " + repo.PushedAt + "\n"
+									msg.Text += repo.Name + " - " + repo.FullName + " / " + repo.PushedAt.Format("2006-01-02 15:04:05") + "\n"
+
+									ghrepo := &database.GithubRepo{
+										Name:     repo.Name,
+										RepoName: repo.FullName,
+									}
+
+									if err := database.AddRepoIfNotExist(db, ghrepo); err != nil {
+										//msg.Text += "\nError on save your repo, try again\n" + err.Error()
+									} else {
+										if err := database.AddRepoLinkIfNotExist(db, ghuser, ghrepo, repo.PushedAt); err != nil {
+											//msg.Text += "\nError on save your repo-to-user link, try again\n" + err.Error()
+										} else {
+
+										}
+									}
 								}
 
 								bot.Send(msg)
@@ -150,8 +165,31 @@ func main() {
 					if user, err := getGithubUserFromDB(update.Message.From.ID); err == nil {
 						if repos, err := getGithubUserRepos(user.Token, user.UserName); err == nil {
 							msg.Text += "Your repos list:\n"
+
+							ghuser := &database.GithubUser{
+								TelegramUserID: strconv.Itoa(update.Message.From.ID),
+								Name:           user.Name,
+								UserName:       user.UserName,
+								Token:          update.Message.CommandArguments(),
+							}
+
 							for _, repo := range repos {
-								msg.Text += repo.Name + " - " + repo.FullName + " / " + repo.PushedAt + "\n"
+								msg.Text += repo.Name + " - " + repo.FullName + " / " + repo.PushedAt.Format("2006-01-02 15:04:05") + "\n"
+
+								ghrepo := &database.GithubRepo{
+									Name:     repo.Name,
+									RepoName: repo.FullName,
+								}
+
+								if err := database.AddRepoIfNotExist(db, ghrepo); err != nil {
+									//msg.Text += "\nError on save your repo, try again\n" + err.Error()
+								} else {
+									if err := database.AddRepoLinkIfNotExist(db, ghuser, ghrepo, repo.PushedAt); err != nil {
+										//msg.Text += "\nError on save your repo-to-user link, try again\n" + err.Error()
+									} else {
+
+									}
+								}
 							}
 						} else {
 							msg.Text += "Empty repos list\n"
@@ -252,9 +290,9 @@ type UserResponse struct {
 
 // Repo ...
 type Repo struct {
-	Name     string `json:"name"`
-	FullName string `json:"full_name"`
-	PushedAt string `json:"pushed_at"`
+	Name     string    `json:"name"`
+	FullName string    `json:"full_name"`
+	PushedAt time.Time `json:"pushed_at"`
 }
 
 // CommitItem ...
