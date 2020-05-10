@@ -107,6 +107,18 @@ func main() {
 					if update.Message.CommandArguments() != "" {
 						if user, err := getGithubUser(update.Message.CommandArguments()); err == nil {
 							msg.Text = "Hi, " + user.Name
+
+							ghuser := database.GithubUser{
+								TelegramUserID: strconv.Itoa(update.Message.From.ID),
+								Name:           user.Name,
+								UserName:       user.UserName,
+								Token:          update.Message.CommandArguments(),
+							}
+
+							if err := database.AddUserIfNotExist(db, ghuser); err != nil {
+								msg.Text += "\nError on save your token, try /start again"
+							}
+
 							bot.Send(msg)
 
 							if repos, err := getGithubUserRepos(update.Message.CommandArguments(), user.UserName); err == nil {
@@ -123,16 +135,34 @@ func main() {
 						}
 					}
 
-					text := `[Click here to authorize bot in github](https://github.com/login/oauth/authorize?client_id=` + clientID + `&redirect_uri=http://localhost:8080/oauth/redirect&state=somerandomstring), and then press START again`
+					text := `[Click here to authorize bot in github](https://github.com/login/oauth/authorize?client_id=` + clientID + `&redirect_uri=http://localhost:8080/oauth/redirect), and then press START again`
 					msg.ParseMode = "Markdown"
 					msg.Text = text
 					msg.DisableWebPagePreview = true
+				case "me":
+					if user, err := getGithubUserFromDB(update.Message.From.ID); err == nil {
+						msg.Text = "Hi, " + user.Name
+					} else {
+						msg.Text = "type /start\n"
+						msg.Text += err.Error()
+					}
+				case "repos":
+					if user, err := getGithubUserFromDB(update.Message.From.ID); err == nil {
+						if repos, err := getGithubUserRepos(user.Token, user.UserName); err == nil {
+							msg.Text += "Your repos list:\n"
+							for _, repo := range repos {
+								msg.Text += repo.Name + " - " + repo.FullName + " / " + repo.PushedAt + "\n"
+							}
+						} else {
+							msg.Text += "Empty repos list\n"
+							msg.Text += err.Error()
+						}
+					} else {
+						msg.Text = "type /start\n"
+						msg.Text += err.Error()
+					}
 				case "help":
-					msg.Text = "type /sayhi or /status."
-				case "sayhi":
-					msg.Text = "Hi :)"
-				case "status":
-					msg.Text = "I'm ok."
+					msg.Text = "type /me, /repos, /commits"
 				default:
 					msg.Text = "I don't know that command"
 				}
@@ -142,24 +172,9 @@ func main() {
 		}
 	}()
 
-	// 	http.HandleFunc("/", func(w http.ResponseWriter, r *http.Request) {
-	// 		indexHTML := `<!DOCTYPE html>
-	// <html>
-	// 	<head>
-	//         <meta charset="utf-8" />
-	//         <meta http-equiv="X-UA-Compatible" content="IE=edge">
-	//         <title>Github auth</title>
-	//         <meta name="viewport" content="width=device-width, initial-scale=1">
-	// 	</head>
-	// 	<body>
-	//         <a href="https://github.com/login/oauth/authorize?client_id=` + clientID + `&redirect_uri=http://localhost:8080/oauth/redirect&state=somerandomstring">Login with github</a>
-	// 	</body>
-	// </html>`
-
-	// 		w.Write([]byte(indexHTML))
-	// 	})
-
 	http.HandleFunc("/oauth/redirect", func(w http.ResponseWriter, r *http.Request) {
+		fmt.Printf("parse query: %#v", r)
+
 		err := r.ParseForm()
 		if err != nil {
 			fmt.Fprintf(os.Stdout, "could not parse query: %v", err)
@@ -192,55 +207,6 @@ func main() {
 		w.Header().Set("Location", "https://t.me/"+bot.Self.UserName+"?start="+t.AccessToken)
 		w.WriteHeader(http.StatusFound)
 	})
-
-	// http.HandleFunc("/user", func(w http.ResponseWriter, r *http.Request) {
-	// 	err := r.ParseForm()
-	// 	if err != nil {
-	// 		fmt.Fprintf(os.Stdout, "could not parse query: %v", err)
-	// 		w.WriteHeader(http.StatusBadRequest)
-	// 	}
-	// 	code := r.FormValue("access_token")
-
-	// 	body, err := makeRequest("https://api.github.com/user", code)
-	// 	if err != nil {
-	// 		fmt.Fprintf(os.Stdout, "could not parse JSON response: %v", err)
-	// 		w.WriteHeader(http.StatusInternalServerError)
-	// 		return
-	// 	}
-
-	// 	var user UserResponse
-	// 	if err := json.Unmarshal(body, &user); err != nil {
-	// 		fmt.Fprintf(os.Stdout, "could not parse JSON response: %v", err)
-	// 		w.WriteHeader(http.StatusBadRequest)
-	// 	}
-
-	// 	w.Write([]byte(fmt.Sprintf("%#v", user)))
-	// })
-
-	// http.HandleFunc("/repos", func(w http.ResponseWriter, r *http.Request) {
-	// 	err := r.ParseForm()
-	// 	if err != nil {
-	// 		fmt.Fprintf(os.Stdout, "could not parse query: %v", err)
-	// 		w.WriteHeader(http.StatusBadRequest)
-	// 	}
-	// 	code := r.FormValue("access_token")
-	// 	username := r.FormValue("username")
-
-	// 	body, err := makeRequest("https://api.github.com/users/"+username+"/subscriptions", code)
-	// 	if err != nil {
-	// 		fmt.Fprintf(os.Stdout, "could not parse JSON response: %v", err)
-	// 		w.WriteHeader(http.StatusInternalServerError)
-	// 		return
-	// 	}
-
-	// 	var repos []Repo
-	// 	if err := json.Unmarshal(body, &repos); err != nil {
-	// 		fmt.Fprintf(os.Stdout, "could not parse JSON response: %v", err)
-	// 		w.WriteHeader(http.StatusBadRequest)
-	// 	}
-
-	// 	w.Write([]byte(fmt.Sprintf("%#v", repos)))
-	// })
 
 	// http.HandleFunc("/commits", func(w http.ResponseWriter, r *http.Request) {
 	// 	err := r.ParseForm()
@@ -324,6 +290,22 @@ func getGithubUser(code string) (*UserResponse, error) {
 	return &user, nil
 }
 
+func getGithubUserFromDB(id int) (*database.GithubUser, error) {
+	var returnModel database.GithubUser
+	sql := fmt.Sprintf("SELECT * FROM github_users WHERE telegram_user_id=%s;", strconv.Itoa(id))
+
+	result, err := database.QuerySQLObject(db, sql, returnModel)
+	if err != nil {
+		return nil, err
+	}
+
+	if returnModel, ok := result.Interface().(*database.GithubUser); ok && returnModel.UserName != "" {
+		return returnModel, nil
+	}
+
+	return nil, fmt.Errorf("User not found")
+}
+
 func getGithubUserRepos(code, username string) ([]*Repo, error) {
 	body, err := makeRequest("https://api.github.com/users/"+username+"/subscriptions", code)
 	if err != nil {
@@ -332,7 +314,7 @@ func getGithubUserRepos(code, username string) ([]*Repo, error) {
 
 	var repos []*Repo
 	if err := json.Unmarshal(body, &repos); err != nil {
-		return nil, err
+		return nil, fmt.Errorf("%s\n%s\n%s\n%s", err, string(body), "https://api.github.com/users/"+username+"/subscriptions", code)
 	}
 
 	return repos, nil

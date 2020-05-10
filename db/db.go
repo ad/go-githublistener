@@ -13,11 +13,12 @@ import (
 
 // GithubUser ...
 type GithubUser struct {
-	ID        int
-	Name      string
-	UserName  string
-	Token     string
-	CreatedAt time.Time
+	ID             int       `sql:"id"`
+	Name           string    `sql:"name"`
+	UserName       string    `sql:"user_name"`
+	TelegramUserID string    `sql:"telegram_user_id"`
+	Token          string    `sql:"token"`
+	CreatedAt      time.Time `sql:"created_at"`
 }
 
 // TelegramMessage ...
@@ -56,7 +57,8 @@ func InitDB() (*sql.DB, error) {
 		"id" INTEGER PRIMARY KEY AUTOINCREMENT,
 		"name" INTEGER NOT NULL,
 		"user_name" text NOT NULL,
-		"token" timestamp,
+		"token" text NOT NULL,
+		"telegram_user_id" INTEGER NOT NULL,
 		"created_at" timestamp DEFAULT CURRENT_TIMESTAMP,
 		CONSTRAINT "github_users_user_name" UNIQUE ("user_name") ON CONFLICT IGNORE
 	  );`)
@@ -71,7 +73,7 @@ func InitDB() (*sql.DB, error) {
 
 	var returnModel TelegramMessage
 
-	result, err := QuerySQLList(db, `select * from telegram_messages order by id desc limit 0, 5`, returnModel)
+	result, err := QuerySQLList(db, `select * from telegram_messages order by id desc limit 0, 5;`, returnModel)
 	if err != nil {
 		log.Println(err)
 	}
@@ -137,7 +139,7 @@ func QuerySQLList(db *sql.DB, sql string, returnModel interface{}) ([]reflect.Va
 func AddUserIfNotExist(db *sql.DB, user GithubUser) error {
 	var returnModel GithubUser
 
-	result, err := QuerySQLObject(db, fmt.Sprintf(`SELECT id, name, user_name, token, created_at FROM github_users WHERE user_name = %s;`, user.UserName), returnModel)
+	result, err := QuerySQLObject(db, fmt.Sprintf(`SELECT * FROM github_users WHERE user_name = %s;`, user.UserName), returnModel)
 	if err != nil {
 		log.Println(err)
 	}
@@ -145,10 +147,11 @@ func AddUserIfNotExist(db *sql.DB, user GithubUser) error {
 		log.Printf("%s already added at %s\n", returnModel.UserName, returnModel.CreatedAt)
 	} else {
 		_, err = db.Exec(
-			"INSERT INTO github_users (name, user_name, token) VALUES (?, ?, ?);",
+			"INSERT INTO github_users (name, user_name, token, telegram_user_id) VALUES (?, ?, ?, ?);",
 			user.Name,
 			user.UserName,
 			user.Token,
+			user.TelegramUserID,
 		)
 
 		if err != nil {
