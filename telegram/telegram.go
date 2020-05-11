@@ -3,10 +3,10 @@ package telegram
 import (
 	"context"
 	"fmt"
-	"log"
 	"net"
 	"net/http"
 
+	dlog "github.com/amoghe/distillog"
 	"golang.org/x/net/proxy"
 	tgbotapi "gopkg.in/telegram-bot-api.v4"
 )
@@ -25,7 +25,6 @@ func InitTelegram(token, proxyHost, proxyPort, proxyUser, proxyPassword string, 
 					proxy.Direct,
 				)
 				if err != nil {
-					log.Println(err)
 					return nil, err
 				}
 
@@ -41,7 +40,7 @@ func InitTelegram(token, proxyHost, proxyPort, proxyUser, proxyPassword string, 
 
 	bot.Debug = debug
 
-	log.Printf("Authorized on account @%s", bot.Self.UserName)
+	dlog.Debugf("Authorized on account @%s", bot.Self.UserName)
 
 	return bot, nil
 }

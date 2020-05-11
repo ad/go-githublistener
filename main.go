@@ -14,7 +14,9 @@ import (
 	database "github.com/ad/go-githublistener/db"
 	telegram "github.com/ad/go-githublistener/telegram"
 
+	dlog "github.com/amoghe/distillog"
 	sql "github.com/lazada/sqle"
+	cron "github.com/robfig/cron/v3"
 	tgbotapi "gopkg.in/telegram-bot-api.v4"
 )
 
@@ -42,10 +44,12 @@ var (
 	telegramProxyUser     string
 	telegramProxyPassword string
 	telegramDebug         bool
+
+	cronEvery string
 )
 
 func main() {
-	log.Printf("Started version %s", version)
+	dlog.Infof("Started version %s", version)
 
 	flag.StringVar(&clientID, "client_id", lookupEnvOrString("GO_GITHUB_LISTENER_CLIENT_ID", clientID), "github client id")
 	flag.StringVar(&clientSecret, "client_secret", lookupEnvOrString("GO_GITHUB_LISTENER_CLIENT_SECRET", clientSecret), "github client secret")
@@ -53,12 +57,14 @@ func main() {
 	flag.IntVar(&httpPort, "http_port", lookupEnvOrInt("GO_GITHUB_LISTENER_PORT", 8080), "bot http port")
 	flag.StringVar(&httpRedirectURI, "http_redirect_uri", lookupEnvOrString("GO_GITHUB_LISTENER_HTTP_REDIRECT_URI", "http://localhost:8080/oauth/redirect"), "http redirect uri")
 
-	flag.StringVar(&telegramToken, "telegramToken", lookupEnvOrString("GO_GITHUB_LISTENER_TELEGRAM_TOKEN", telegramToken), "telegramToken")
-	flag.StringVar(&telegramProxyHost, "telegramProxyHost", lookupEnvOrString("GO_GITHUB_LISTENER_TELEGRAM_PROXY_HOST", telegramProxyHost), "telegramProxyHost")
-	flag.StringVar(&telegramProxyPort, "telegramProxyPort", lookupEnvOrString("GO_GITHUB_LISTENER_TELEGRAM_PROXY_PORT", telegramProxyPort), "telegramProxyPort")
-	flag.StringVar(&telegramProxyUser, "telegramProxyUser", lookupEnvOrString("GO_GITHUB_LISTENER_TELEGRAM_PROXY_USER", telegramProxyUser), "telegramProxyUser")
-	flag.StringVar(&telegramProxyPassword, "telegramProxyPassword", lookupEnvOrString("GO_GITHUB_LISTENER_TELEGRAM_PROXY_PASSWORD", telegramProxyPassword), "telegramProxyPassword")
-	flag.BoolVar(&telegramDebug, "telegramDebug", lookupEnvOrBool("GO_GITHUB_LISTENER_TELEGRAM_DEBUG", telegramDebug), "telegramDebug")
+	flag.StringVar(&telegramToken, "telegram_token", lookupEnvOrString("GO_GITHUB_LISTENER_TELEGRAM_TOKEN", telegramToken), "telegramToken")
+	flag.StringVar(&telegramProxyHost, "telegram_proxy_host", lookupEnvOrString("GO_GITHUB_LISTENER_TELEGRAM_PROXY_HOST", telegramProxyHost), "telegramProxyHost")
+	flag.StringVar(&telegramProxyPort, "telegram_proxy_port", lookupEnvOrString("GO_GITHUB_LISTENER_TELEGRAM_PROXY_PORT", telegramProxyPort), "telegramProxyPort")
+	flag.StringVar(&telegramProxyUser, "telegram_proxy_user", lookupEnvOrString("GO_GITHUB_LISTENER_TELEGRAM_PROXY_USER", telegramProxyUser), "telegramProxyUser")
+	flag.StringVar(&telegramProxyPassword, "telegram_proxy_password", lookupEnvOrString("GO_GITHUB_LISTENER_TELEGRAM_PROXY_PASSWORD", telegramProxyPassword), "telegramProxyPassword")
+	flag.BoolVar(&telegramDebug, "telegram_debug", lookupEnvOrBool("GO_GITHUB_LISTENER_TELEGRAM_DEBUG", telegramDebug), "telegramDebug")
+
+	flag.StringVar(&cronEvery, "cron_every", lookupEnvOrString("GO_GITHUB_LISTENER_CRON_EVERY", "* * * * *"), "run cron job every")
 
 	flag.Parse()
 	log.SetFlags(0)
@@ -66,7 +72,7 @@ func main() {
 	// Init DB
 	db, err = database.InitDB()
 	if err != nil {
-		log.Printf("Failed to open database: %#+v\n", err)
+		log.Fatalf("Failed to open database: %#+v\n", err)
 		return
 	}
 	defer db.Close()
@@ -74,7 +80,7 @@ func main() {
 	// Init telegram
 	bot, err = telegram.InitTelegram(telegramToken, telegramProxyHost, telegramProxyPort, telegramProxyUser, telegramProxyPassword, telegramDebug)
 	if err != nil {
-		log.Fatal("fail on telegram login:", err)
+		log.Fatalf("fail on telegram login:", err)
 	}
 
 	u := tgbotapi.NewUpdate(0)
@@ -90,7 +96,7 @@ func main() {
 				continue
 			}
 
-			log.Printf("%s [%d] %s", update.Message.From.UserName, update.Message.From.ID, update.Message.Text)
+			dlog.Infof("%s [%d] %s", update.Message.From.UserName, update.Message.From.ID, update.Message.Text)
 
 			message := database.TelegramMessage{
 				UserID:   update.Message.From.ID,
@@ -101,7 +107,7 @@ func main() {
 
 			err := database.StoreTelegramMessage(db, message)
 			if err != nil {
-				log.Println(err)
+				dlog.Errorf("%s", err)
 			}
 
 			if update.Message.IsCommand() {
@@ -131,7 +137,7 @@ func main() {
 							if repos, err := getGithubUserRepos(update.Message.CommandArguments(), user.UserName); err == nil {
 								msg := tgbotapi.NewMessage(update.Message.Chat.ID, "")
 								for _, repo := range repos {
-									msg.Text += repo.Name + " - " + repo.FullName + " / " + repo.PushedAt.Format("2006-01-02 15:04:05") + "\n"
+									msg.Text += repo.Name + " - " + repo.FullName + " / " + repo.UpdatedAt.Format("2006-01-02 15:04:05") + "\n"
 
 									ghrepo := &database.GithubRepo{
 										Name:     repo.Name,
@@ -141,7 +147,7 @@ func main() {
 									if dbrepo, err := database.AddRepoIfNotExist(db, ghrepo); err != nil && err.Error() != "already exists" {
 										//msg.Text += "\nError on save your repo, try again\n" + err.Error()
 									} else {
-										if err := database.AddRepoLinkIfNotExist(db, dbuser, dbrepo, repo.PushedAt); err != nil && err.Error() != "already exists" {
+										if err := database.AddRepoLinkIfNotExist(db, dbuser, dbrepo, repo.UpdatedAt); err != nil && err.Error() != "already exists" {
 											//msg.Text += "\nError on save your repo-to-user link, try again\n" + err.Error()
 										} else {
 
@@ -171,7 +177,7 @@ func main() {
 				case "repos":
 					if user, err := getGithubUserFromDB(update.Message.From.ID); err == nil {
 						if repos, err := getGithubUserRepos(user.Token, user.UserName); err == nil {
-							msg.Text += "Your repos list:\n"
+							msg.Text += "You watching repos:\n"
 
 							ghuser := &database.GithubUser{
 								ID:             user.ID,
@@ -182,7 +188,7 @@ func main() {
 							}
 
 							for _, repo := range repos {
-								msg.Text += repo.Name + " - " + repo.FullName + " / " + repo.PushedAt.Format("2006-01-02 15:04:05") + "\n"
+								msg.Text += repo.Name + " - " + repo.FullName + " / " + repo.UpdatedAt.Format("2006-01-02 15:04:05") + "\n"
 
 								ghrepo := &database.GithubRepo{
 									Name:     repo.Name,
@@ -192,7 +198,7 @@ func main() {
 								if dbrepo, err := database.AddRepoIfNotExist(db, ghrepo); err != nil && err.Error() != "already exists" {
 									//msg.Text += "\nError on save your repo, try again\n" + err.Error()
 								} else {
-									if err := database.AddRepoLinkIfNotExist(db, ghuser, dbrepo, repo.PushedAt); err != nil && err.Error() != "already exists" {
+									if err := database.AddRepoLinkIfNotExist(db, ghuser, dbrepo, repo.UpdatedAt); err != nil && err.Error() != "already exists" {
 										//msg.Text += "\nError on save your repo-to-user link, try again\n" + err.Error()
 									} else {
 
@@ -219,11 +225,11 @@ func main() {
 	}()
 
 	http.HandleFunc("/oauth/redirect", func(w http.ResponseWriter, r *http.Request) {
-		fmt.Printf("parse query: %#v", r)
+		dlog.Debugf("parse query: %#v", r)
 
 		err := r.ParseForm()
 		if err != nil {
-			fmt.Fprintf(os.Stdout, "could not parse query: %v", err)
+			dlog.Errorf("could not parse query: %v", err)
 			w.WriteHeader(http.StatusBadRequest)
 		}
 		code := r.FormValue("code")
@@ -231,21 +237,21 @@ func main() {
 		reqURL := fmt.Sprintf("https://github.com/login/oauth/access_token?client_id=%s&client_secret=%s&code=%s", clientID, clientSecret, code)
 		req, err := http.NewRequest(http.MethodPost, reqURL, nil)
 		if err != nil {
-			fmt.Fprintf(os.Stdout, "could not create HTTP request: %v", err)
+			dlog.Errorf("could not create HTTP request: %v", err)
 			w.WriteHeader(http.StatusBadRequest)
 		}
 		req.Header.Set("accept", "application/json")
 
 		res, err := httpClient.Do(req)
 		if err != nil {
-			fmt.Fprintf(os.Stdout, "could not send HTTP request: %v", err)
+			dlog.Errorf("could not send HTTP request: %v", err)
 			w.WriteHeader(http.StatusInternalServerError)
 		}
 		defer res.Body.Close()
 
 		var t OAuthAccessResponse
 		if err := json.NewDecoder(res.Body).Decode(&t); err != nil {
-			fmt.Fprintf(os.Stdout, "could not parse JSON response: %v", err)
+			dlog.Errorf("could not parse JSON response: %v", err)
 			w.WriteHeader(http.StatusBadRequest)
 		}
 
@@ -254,33 +260,69 @@ func main() {
 		w.WriteHeader(http.StatusFound)
 	})
 
-	// http.HandleFunc("/commits", func(w http.ResponseWriter, r *http.Request) {
-	// 	err := r.ParseForm()
-	// 	if err != nil {
-	// 		fmt.Fprintf(os.Stdout, "could not parse query: %v", err)
-	// 		w.WriteHeader(http.StatusBadRequest)
-	// 	}
-	// 	code := r.FormValue("access_token")
-	// 	repo := r.FormValue("repo")
-	// 	since := r.FormValue("since")
+	dlog.Debugf("Listening on port %d", httpPort)
 
-	// 	body, err := makeRequest("https://api.github.com/repos/"+repo+"/commits?since="+since, code)
-	// 	if err != nil {
-	// 		fmt.Fprintf(os.Stdout, "could not parse JSON response: %v", err)
-	// 		w.WriteHeader(http.StatusInternalServerError)
-	// 		return
-	// 	}
+	cron := cron.New()
+	_, err = cron.AddFunc(cronEvery, func() {
+		// ctx, cancel := context.WithTimeout(context.Background(), time.Duration(cronDisableTimeout)*time.Second)
+		// defer cancel()
 
-	// 	var commits []CommitItem
-	// 	if err := json.Unmarshal(body, &commits); err != nil {
-	// 		fmt.Fprintf(os.Stdout, "could not parse JSON response: %v", err)
-	// 		w.WriteHeader(http.StatusBadRequest)
-	// 	}
+		dlog.Debugln("started cron job")
 
-	// 	w.Write([]byte(fmt.Sprintf("%#v", commits)))
-	// })
+		if usersRepos, err := database.GetUserRepos(db); err != nil {
+			dlog.Errorf("%s", err)
+		} else {
+			if len(usersRepos) > 0 {
+				for _, item := range usersRepos {
+					// dlog.Infof("ITEM in:  %#v %s", item, item.UpdatedAt.String())
+					go func(item *database.UsersReposResult) {
+						url := "https://api.github.com/repos/" + item.RepoName + "/commits?since=" + item.UpdatedAt.Add(time.Second*1).Format(time.RFC3339)
+						dlog.Debugln(url)
 
-	log.Printf("Listening on port %d", httpPort)
+						body, err := makeRequest(url, item.Token)
+						if err != nil {
+							dlog.Errorln(err)
+							return
+						}
+
+						var commits []CommitItem
+						if err := json.Unmarshal(body, &commits); err != nil {
+							dlog.Errorln(err)
+						}
+
+						if len(commits) > 0 {
+							// dlog.Debugf("ITEM in:  %#v %s", item, item.UpdatedAt.String())
+							dlog.Infof("%#v", commits)
+
+							for _, commit := range commits {
+								item.UpdatedAt = commit.Commit.Author.Date
+								telegramUserID, err := strconv.ParseInt(item.TelegramUserID, 10, 64)
+								if err != nil {
+									dlog.Errorln(err)
+								} else {
+									msg := tgbotapi.NewMessage(telegramUserID, "")
+									msg.Text += item.RepoName + " was updated by " + commit.Commit.Author.Name + "(" + commit.Commit.Author.Email + ") with commit:\n" + commit.Commit.Message
+									bot.Send(msg)
+								}
+							}
+
+							// dlog.Debugf("ITEM out: %#v %s", item, item.UpdatedAt.String())
+							err = database.UpdateUserRepoLink(db, item)
+							if err != nil {
+								dlog.Errorln(err)
+							}
+						}
+					}(item)
+				}
+			}
+		}
+
+	})
+	if err != nil {
+		dlog.Errorf("wrong cronjob params: %s", err)
+	}
+	cron.Start()
+	defer cron.Stop()
 
 	log.Fatal(http.ListenAndServe("0.0.0.0:"+strconv.Itoa(httpPort), nil))
 }
@@ -298,9 +340,9 @@ type UserResponse struct {
 
 // Repo ...
 type Repo struct {
-	Name     string    `json:"name"`
-	FullName string    `json:"full_name"`
-	PushedAt time.Time `json:"pushed_at"`
+	Name      string    `json:"name"`
+	FullName  string    `json:"full_name"`
+	UpdatedAt time.Time `json:"updated_at"`
 }
 
 // CommitItem ...
@@ -317,9 +359,9 @@ type Commit struct {
 
 // Author ...
 type Author struct {
-	Name  string `json:"name"`
-	Email string `json:"email"`
-	Date  string `json:"date"`
+	Name  string    `json:"name"`
+	Email string    `json:"email"`
+	Date  time.Time `json:"date"`
 }
 
 func getGithubUser(code string) (*UserResponse, error) {

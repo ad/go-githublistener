@@ -3,10 +3,10 @@ package db
 import (
 	s "database/sql"
 	"fmt"
-	"log"
 	"reflect"
 	"time"
 
+	dlog "github.com/amoghe/distillog"
 	sql "github.com/lazada/sqle"
 	_ "github.com/mattn/go-sqlite3" // ...
 )
@@ -44,7 +44,17 @@ type UserRepo struct {
 	UserID    int       `sql:"user_id"`
 	RepoID    int       `sql:"repo_id"`
 	CreatedAt time.Time `sql:"created_at"`
-	PushedAt  time.Time `sql:"pushed_at"`
+	UpdatedAt time.Time `sql:"updated_at"`
+}
+
+// UsersReposResult ...
+type UsersReposResult struct {
+	UserID         int
+	RepoID         int
+	TelegramUserID string
+	Token          string
+	RepoName       string
+	UpdatedAt      time.Time
 }
 
 // InitDB ...
@@ -67,7 +77,7 @@ func InitDB() (*sql.DB, error) {
 		"created_at" timestamp DEFAULT CURRENT_TIMESTAMP
 	);`)
 	if err != nil {
-		fmt.Println(err)
+		dlog.Errorf("%s", err)
 	}
 
 	err = ExecSQL(db, `CREATE TABLE IF NOT EXISTS "github_users" (
@@ -80,7 +90,7 @@ func InitDB() (*sql.DB, error) {
 		CONSTRAINT "github_users_user_name" UNIQUE ("user_name") ON CONFLICT IGNORE
 	  );`)
 	if err != nil {
-		fmt.Println(err)
+		dlog.Errorf("%s", err)
 	}
 
 	err = ExecSQL(db, `CREATE TABLE IF NOT EXISTS "github_repos" (
@@ -91,7 +101,7 @@ func InitDB() (*sql.DB, error) {
 		CONSTRAINT "github_repos_repo_name" UNIQUE ("repo_name") ON CONFLICT IGNORE
 	  );`)
 	if err != nil {
-		fmt.Println(err)
+		dlog.Errorf("%s", err)
 	}
 
 	err = ExecSQL(db, `CREATE TABLE IF NOT EXISTS "users_repos" (
@@ -99,32 +109,14 @@ func InitDB() (*sql.DB, error) {
 		"user_id" INTEGER NOT NULL,
 		"repo_id" INTEGER NOT NULL,
 		"created_at" timestamp DEFAULT CURRENT_TIMESTAMP,
-		"pushed_at" timestamp,
+		"updated_at" timestamp,
 		CONSTRAINT "repos_user_id" FOREIGN KEY ("user_id") REFERENCES "github_users" ("id"),
 		CONSTRAINT "repos_repo_id" FOREIGN KEY ("repo_id") REFERENCES "github_repos" ("id"),
 		CONSTRAINT "repos_repo_id_user_id" UNIQUE ("user_id", "repo_id") ON CONFLICT IGNORE
 	  );`)
 	if err != nil {
-		fmt.Println(err)
+		dlog.Errorf("%s", err)
 	}
-
-	// CREATE INDEX IF NOT EXISTS "messages_user_id"
-	// ON "messages" (
-	//   "user_id" ASC
-	// );
-
-	// var returnModel TelegramMessage
-
-	// result, err := QuerySQLList(db, `select * from telegram_messages order by id desc limit 0, 5;`, returnModel)
-	// if err != nil {
-	// 	log.Println(err)
-	// }
-	// for _, item := range result {
-	// 	if returnModel, ok := item.Interface().(*TelegramMessage); ok {
-	// 		// FIXME: some problem with time.Time :(
-	// 		log.Printf("%s: %s [%d] %s", returnModel.Date, returnModel.UserName, returnModel.UserID, returnModel.Message)
-	// 	}
-	// }
 
 	return db, nil
 }
@@ -186,7 +178,7 @@ func AddUserIfNotExist(db *sql.DB, user *GithubUser) (*GithubUser, error) {
 		return nil, err
 	}
 	if returnModel, ok := result.Interface().(*GithubUser); ok && returnModel.UserName != "" {
-		log.Printf("already exists: %#v", returnModel)
+		dlog.Debugf("already exists: %#v", returnModel)
 		return returnModel, fmt.Errorf("already exists")
 	}
 
@@ -205,7 +197,7 @@ func AddUserIfNotExist(db *sql.DB, user *GithubUser) (*GithubUser, error) {
 	user.ID, _ = res.LastInsertId()
 	user.CreatedAt = time.Now()
 
-	log.Printf("%s (%d) added at %s\n", user.UserName, user.ID, user.CreatedAt)
+	dlog.Debugf("%s (%d) added at %s\n", user.UserName, user.ID, user.CreatedAt)
 
 	return user, nil
 }
@@ -219,7 +211,7 @@ func AddRepoIfNotExist(db *sql.DB, repo *GithubRepo) (*GithubRepo, error) {
 		return nil, err
 	}
 	if returnModel, ok := result.Interface().(*GithubRepo); ok && returnModel.RepoName != "" {
-		log.Printf("already exists: %#v", returnModel)
+		dlog.Debugf("already exists: %#v", returnModel)
 		return returnModel, fmt.Errorf("already exists")
 	}
 	res, err := db.Exec(
@@ -235,13 +227,13 @@ func AddRepoIfNotExist(db *sql.DB, repo *GithubRepo) (*GithubRepo, error) {
 	repo.ID, _ = res.LastInsertId()
 	repo.CreatedAt = time.Now()
 
-	log.Printf("%s (%d) added at %s\n", repo.RepoName, repo.ID, repo.CreatedAt)
+	dlog.Debugf("%s (%d) added at %s\n", repo.RepoName, repo.ID, repo.CreatedAt)
 
 	return repo, nil
 }
 
 // AddRepoLinkIfNotExist ...
-func AddRepoLinkIfNotExist(db *sql.DB, user *GithubUser, repo *GithubRepo, pushedAt time.Time) error {
+func AddRepoLinkIfNotExist(db *sql.DB, user *GithubUser, repo *GithubRepo, UpdatedAt time.Time) error {
 	var returnModel UserRepo
 
 	result, err := QuerySQLObject(db, fmt.Sprintf(`SELECT * FROM users_repos WHERE user_id = %d AND repo_id = %d;`, user.ID, repo.ID), returnModel)
@@ -249,15 +241,15 @@ func AddRepoLinkIfNotExist(db *sql.DB, user *GithubUser, repo *GithubRepo, pushe
 		return err
 	}
 	if returnModel, ok := result.Interface().(*UserRepo); ok && returnModel.UserID > 0 && returnModel.RepoID > 0 {
-		log.Printf("already exists: %#v", returnModel)
+		dlog.Debugf("already exists: %#v", returnModel)
 		return fmt.Errorf("already exists")
 	}
 
 	res, err := db.Exec(
-		"INSERT INTO users_repos (user_id, repo_id, pushed_at) VALUES (?, ?, ?);",
+		"INSERT INTO users_repos (user_id, repo_id, updated_at) VALUES (?, ?, ?);",
 		user.ID,
 		repo.ID,
-		pushedAt,
+		UpdatedAt,
 	)
 
 	if err != nil {
@@ -266,7 +258,7 @@ func AddRepoLinkIfNotExist(db *sql.DB, user *GithubUser, repo *GithubRepo, pushe
 
 	id, _ := res.LastInsertId()
 
-	log.Printf("link %s <-> %s (%d) added at %s\n", user.Name, repo.RepoName, id, time.Now())
+	dlog.Debugf("link %s <-> %s (%d) added at %s\n", user.Name, repo.RepoName, id, time.Now())
 
 	return nil
 }
@@ -285,4 +277,49 @@ func StoreTelegramMessage(db *sql.DB, message TelegramMessage) error {
 	}
 
 	return nil
+}
+
+// UpdateUserRepoLink ...
+func UpdateUserRepoLink(db *sql.DB, userRepoResult *UsersReposResult) error {
+	_, err := db.Exec(
+		"UPDATE users_repos SET updated_at = ? WHERE user_id = ? AND repo_id = ?;",
+		userRepoResult.UpdatedAt,
+		userRepoResult.UserID,
+		userRepoResult.RepoID)
+
+	if err != nil {
+		return err
+	}
+
+	return nil
+}
+
+// GetUserRepos ...
+func GetUserRepos(db *sql.DB) (usersRepos []*UsersReposResult, err error) {
+	var returnModel UsersReposResult
+	sql := `select
+	users_repos.user_id as user_id,
+	users_repos.repo_id as repo_id,
+	github_users.telegram_user_id as telegram_user_id,
+	github_users.token as token,
+	github_repos.repo_name as repo_name,
+	users_repos.updated_at as updated_at
+FROM
+	github_repos
+	INNER JOIN users_repos ON github_repos.id = users_repos.repo_id
+	INNER JOIN github_users ON github_users.id = users_repos.user_id
+WHERE
+	users_repos.updated_at > DATETIME('now',  '-15 minutes');`
+
+	result, err := QuerySQLList(db, sql, returnModel)
+	if err != nil {
+		return usersRepos, err
+	}
+	for _, item := range result {
+		if returnModel, ok := item.Interface().(*UsersReposResult); ok {
+			usersRepos = append(usersRepos, returnModel)
+		}
+	}
+
+	return usersRepos, err
 }
