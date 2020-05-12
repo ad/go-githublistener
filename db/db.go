@@ -11,6 +11,12 @@ import (
 	_ "github.com/mattn/go-sqlite3" // ...
 )
 
+// AlreadyExists ...
+const (
+	AlreadyExists = "already exists"
+	UserNotFound  = "user not found"
+)
+
 // TelegramMessage ...
 type TelegramMessage struct {
 	ID       int
@@ -132,11 +138,11 @@ func ExecSQL(db *sql.DB, sql string) error {
 }
 
 // QuerySQLObject ...
-func QuerySQLObject(db *sql.DB, sql string, returnModel interface{}) (reflect.Value, error) {
+func QuerySQLObject(db *sql.DB, returnModel interface{}, sql string, args ...interface{}) (reflect.Value, error) {
 	t := reflect.TypeOf(returnModel)
 	u := reflect.New(t)
 
-	err := db.QueryRow(sql).Scan(u.Interface())
+	err := db.QueryRow(sql, args...).Scan(u.Interface())
 	switch {
 	case err == s.ErrNoRows:
 		return u, nil
@@ -148,10 +154,10 @@ func QuerySQLObject(db *sql.DB, sql string, returnModel interface{}) (reflect.Va
 }
 
 // QuerySQLList ...
-func QuerySQLList(db *sql.DB, sql string, returnModel interface{}) ([]reflect.Value, error) {
+func QuerySQLList(db *sql.DB, returnModel interface{}, sql string, args ...interface{}) ([]reflect.Value, error) {
 	var result []reflect.Value
 
-	rows, err := db.Query(sql)
+	rows, err := db.Query(sql, args...)
 	if err != nil {
 		return nil, fmt.Errorf("%s: %s", err.Error(), sql)
 	}
@@ -173,13 +179,13 @@ func QuerySQLList(db *sql.DB, sql string, returnModel interface{}) ([]reflect.Va
 func AddUserIfNotExist(db *sql.DB, user *GithubUser) (*GithubUser, error) {
 	var returnModel GithubUser
 
-	result, err := QuerySQLObject(db, fmt.Sprintf(`SELECT * FROM github_users WHERE user_name = '%s';`, user.UserName), returnModel)
+	result, err := QuerySQLObject(db, returnModel, `SELECT * FROM github_users WHERE user_name = ?;`, user.UserName)
 	if err != nil {
 		return nil, err
 	}
 	if returnModel, ok := result.Interface().(*GithubUser); ok && returnModel.UserName != "" {
 		dlog.Debugf("already exists: %#v", returnModel)
-		return returnModel, fmt.Errorf("already exists")
+		return returnModel, fmt.Errorf(AlreadyExists)
 	}
 
 	res, err := db.Exec(
@@ -206,13 +212,13 @@ func AddUserIfNotExist(db *sql.DB, user *GithubUser) (*GithubUser, error) {
 func AddRepoIfNotExist(db *sql.DB, repo *GithubRepo) (*GithubRepo, error) {
 	var returnModel GithubRepo
 
-	result, err := QuerySQLObject(db, fmt.Sprintf(`SELECT * FROM github_repos WHERE repo_name = '%s';`, repo.RepoName), returnModel)
+	result, err := QuerySQLObject(db, returnModel, `SELECT * FROM github_repos WHERE repo_name = ?;`, repo.RepoName)
 	if err != nil {
 		return nil, err
 	}
 	if returnModel, ok := result.Interface().(*GithubRepo); ok && returnModel.RepoName != "" {
 		dlog.Debugf("already exists: %#v", returnModel)
-		return returnModel, fmt.Errorf("already exists")
+		return returnModel, fmt.Errorf(AlreadyExists)
 	}
 	res, err := db.Exec(
 		"INSERT INTO github_repos (name, repo_name) VALUES (?, ?);",
@@ -233,23 +239,23 @@ func AddRepoIfNotExist(db *sql.DB, repo *GithubRepo) (*GithubRepo, error) {
 }
 
 // AddRepoLinkIfNotExist ...
-func AddRepoLinkIfNotExist(db *sql.DB, user *GithubUser, repo *GithubRepo, UpdatedAt time.Time) error {
+func AddRepoLinkIfNotExist(db *sql.DB, user *GithubUser, repo *GithubRepo, updatedAt time.Time) error {
 	var returnModel UserRepo
 
-	result, err := QuerySQLObject(db, fmt.Sprintf(`SELECT * FROM users_repos WHERE user_id = %d AND repo_id = %d;`, user.ID, repo.ID), returnModel)
+	result, err := QuerySQLObject(db, returnModel, `SELECT * FROM users_repos WHERE user_id = ? AND repo_id = ?;`, user.ID, repo.ID)
 	if err != nil {
 		return err
 	}
 	if returnModel, ok := result.Interface().(*UserRepo); ok && returnModel.UserID > 0 && returnModel.RepoID > 0 {
 		dlog.Debugf("already exists: %#v", returnModel)
-		return fmt.Errorf("already exists")
+		return fmt.Errorf(AlreadyExists)
 	}
 
 	res, err := db.Exec(
 		"INSERT INTO users_repos (user_id, repo_id, updated_at) VALUES (?, ?, ?);",
 		user.ID,
 		repo.ID,
-		UpdatedAt,
+		updatedAt,
 	)
 
 	if err != nil {
@@ -311,7 +317,7 @@ FROM
 WHERE
 	users_repos.updated_at > DATETIME('now',  '-15 minutes');`
 
-	result, err := QuerySQLList(db, sql, returnModel)
+	result, err := QuerySQLList(db, returnModel, sql)
 	if err != nil {
 		return usersRepos, err
 	}
@@ -322,4 +328,20 @@ WHERE
 	}
 
 	return usersRepos, err
+}
+
+// GetGithubUserFromDB ...
+func GetGithubUserFromDB(db *sql.DB, id string) (*GithubUser, error) {
+	var returnModel GithubUser
+
+	result, err := QuerySQLObject(db, returnModel, `SELECT * FROM github_users WHERE telegram_user_id = ?;`, id)
+	if err != nil {
+		return nil, err
+	}
+
+	if returnModel, ok := result.Interface().(*GithubUser); ok && returnModel.UserName != "" {
+		return returnModel, nil
+	}
+
+	return nil, fmt.Errorf(UserNotFound)
 }

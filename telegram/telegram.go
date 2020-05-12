@@ -18,14 +18,14 @@ func InitTelegram(token, proxyHost, proxyPort, proxyUser, proxyPassword string, 
 	if proxyHost != "" {
 		tr = http.Transport{
 			DialContext: func(_ context.Context, network, addr string) (net.Conn, error) {
-				socksDialer, err := proxy.SOCKS5(
+				socksDialer, err2 := proxy.SOCKS5(
 					"tcp",
 					fmt.Sprintf("%s:%s", proxyHost, proxyPort),
 					&proxy.Auth{User: proxyUser, Password: proxyPassword},
 					proxy.Direct,
 				)
-				if err != nil {
-					return nil, err
+				if err2 != nil {
+					return nil, err2
 				}
 
 				return socksDialer.Dial(network, addr)

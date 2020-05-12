@@ -1,10 +1,7 @@
 package main
 
 import (
-	"encoding/json"
 	"flag"
-	"fmt"
-	"io/ioutil"
 	"log"
 	"net/http"
 	"os"
@@ -12,6 +9,7 @@ import (
 	"time"
 
 	database "github.com/ad/go-githublistener/db"
+	ghapi "github.com/ad/go-githublistener/ghapi"
 	telegram "github.com/ad/go-githublistener/telegram"
 
 	dlog "github.com/amoghe/distillog"
@@ -20,17 +18,14 @@ import (
 	tgbotapi "gopkg.in/telegram-bot-api.v4"
 )
 
-const version = "0.0.3"
+const version = "0.0.4"
 
 var (
 	err error
 
-	bot *tgbotapi.BotAPI
-	db  *sql.DB
-
-	httpClient = http.Client{
-		Timeout: time.Duration(5 * time.Second),
-	}
+	bot    *tgbotapi.BotAPI
+	db     *sql.DB
+	client *ghapi.Client
 
 	clientID     string
 	clientSecret string
@@ -69,18 +64,20 @@ func main() {
 	flag.Parse()
 	log.SetFlags(0)
 
+	client = ghapi.NewClient(clientID, clientSecret)
+
 	// Init DB
 	db, err = database.InitDB()
 	if err != nil {
-		log.Fatalf("Failed to open database: %#+v\n", err)
+		log.Fatalf("failed to open database: %v", err)
 		return
 	}
-	defer db.Close()
+	defer func() { _ = db.Close() }()
 
 	// Init telegram
 	bot, err = telegram.InitTelegram(telegramToken, telegramProxyHost, telegramProxyPort, telegramProxyUser, telegramProxyPassword, telegramDebug)
 	if err != nil {
-		log.Fatalf("fail on telegram login:", err)
+		log.Fatalf("fail on telegram login: %v", err)
 	}
 
 	u := tgbotapi.NewUpdate(0)
@@ -90,173 +87,27 @@ func main() {
 		log.Fatalf("[INIT] [Failed to init Telegram updates chan: %v]", err)
 	}
 
-	go func() {
-		for update := range updates {
-			if update.Message == nil { // ignore any non-Message Updates
-				continue
-			}
-
-			dlog.Infof("%s [%d] %s", update.Message.From.UserName, update.Message.From.ID, update.Message.Text)
-
-			message := database.TelegramMessage{
-				UserID:   update.Message.From.ID,
-				UserName: update.Message.From.UserName,
-				Message:  update.Message.Text,
-				Date:     time.Unix(int64(update.Message.Date), 0),
-			}
-
-			err := database.StoreTelegramMessage(db, message)
-			if err != nil {
-				dlog.Errorf("%s", err)
-			}
-
-			if update.Message.IsCommand() {
-				msg := tgbotapi.NewMessage(update.Message.Chat.ID, "")
-				switch update.Message.Command() {
-				case "start", "startgroup":
-					if update.Message.CommandArguments() != "" {
-						if user, err := getGithubUser(update.Message.CommandArguments()); err == nil {
-							msg.Text = "Hi, " + user.Name
-
-							ghuser := &database.GithubUser{
-								Name:           user.Name,
-								UserName:       user.UserName,
-								Token:          update.Message.CommandArguments(),
-								TelegramUserID: strconv.Itoa(update.Message.From.ID),
-							}
-
-							dbuser, err := database.AddUserIfNotExist(db, ghuser)
-
-							if err != nil && err.Error() != "already exists" {
-								msg.Text += "\nError on save your token, try /start again\n" + err.Error()
-								bot.Send(msg)
-
-								return
-							}
-
-							if repos, err := getGithubUserRepos(update.Message.CommandArguments(), user.UserName); err == nil {
-								msg := tgbotapi.NewMessage(update.Message.Chat.ID, "")
-								for _, repo := range repos {
-									msg.Text += repo.Name + " - " + repo.FullName + " / " + repo.UpdatedAt.Format("2006-01-02 15:04:05") + "\n"
-
-									ghrepo := &database.GithubRepo{
-										Name:     repo.Name,
-										RepoName: repo.FullName,
-									}
-
-									if dbrepo, err := database.AddRepoIfNotExist(db, ghrepo); err != nil && err.Error() != "already exists" {
-										//msg.Text += "\nError on save your repo, try again\n" + err.Error()
-									} else {
-										if err := database.AddRepoLinkIfNotExist(db, dbuser, dbrepo, repo.UpdatedAt); err != nil && err.Error() != "already exists" {
-											//msg.Text += "\nError on save your repo-to-user link, try again\n" + err.Error()
-										} else {
-
-										}
-									}
-								}
-
-								bot.Send(msg)
-
-								return
-							}
-							return
-						}
-					}
-
-					text := `[Click here to authorize bot in github](https://github.com/login/oauth/authorize?client_id=` + clientID + `&redirect_uri=` + httpRedirectURI + `), and then press START again`
-					msg.ParseMode = "Markdown"
-					msg.Text = text
-					msg.DisableWebPagePreview = true
-				case "me":
-					if user, err := getGithubUserFromDB(update.Message.From.ID); err == nil {
-						msg.Text = "Hi, " + user.Name
-					} else {
-						msg.Text = "type /start\n"
-						msg.Text += err.Error()
-					}
-				case "repos":
-					if user, err := getGithubUserFromDB(update.Message.From.ID); err == nil {
-						if repos, err := getGithubUserRepos(user.Token, user.UserName); err == nil {
-							msg.Text += "You watching repos:\n"
-
-							ghuser := &database.GithubUser{
-								ID:             user.ID,
-								Name:           user.Name,
-								UserName:       user.UserName,
-								Token:          update.Message.CommandArguments(),
-								TelegramUserID: strconv.Itoa(update.Message.From.ID),
-							}
-
-							for _, repo := range repos {
-								msg.Text += repo.Name + " - " + repo.FullName + " / " + repo.UpdatedAt.Format("2006-01-02 15:04:05") + "\n"
-
-								ghrepo := &database.GithubRepo{
-									Name:     repo.Name,
-									RepoName: repo.FullName,
-								}
-
-								if dbrepo, err := database.AddRepoIfNotExist(db, ghrepo); err != nil && err.Error() != "already exists" {
-									//msg.Text += "\nError on save your repo, try again\n" + err.Error()
-								} else {
-									if err := database.AddRepoLinkIfNotExist(db, ghuser, dbrepo, repo.UpdatedAt); err != nil && err.Error() != "already exists" {
-										//msg.Text += "\nError on save your repo-to-user link, try again\n" + err.Error()
-									} else {
-
-									}
-								}
-							}
-						} else {
-							msg.Text += "Empty repos list\n"
-							msg.Text += err.Error()
-						}
-					} else {
-						msg.Text = "type /start\n"
-						msg.Text += err.Error()
-					}
-				case "help":
-					msg.Text = "type /me, /repos, /commits"
-				default:
-					msg.Text = "I don't know that command"
-				}
-				msg.ReplyToMessageID = update.Message.MessageID
-				bot.Send(msg)
-			}
-		}
-	}()
+	go processTelegramMessages(updates)
 
 	http.HandleFunc("/oauth/redirect", func(w http.ResponseWriter, r *http.Request) {
 		dlog.Debugf("parse query: %#v", r)
 
-		err := r.ParseForm()
-		if err != nil {
-			dlog.Errorf("could not parse query: %v", err)
+		err12 := r.ParseForm()
+		if err12 != nil {
+			dlog.Errorf("could not parse query: %v", err12)
 			w.WriteHeader(http.StatusBadRequest)
 		}
 		code := r.FormValue("code")
 
-		reqURL := fmt.Sprintf("https://github.com/login/oauth/access_token?client_id=%s&client_secret=%s&code=%s", clientID, clientSecret, code)
-		req, err := http.NewRequest(http.MethodPost, reqURL, nil)
-		if err != nil {
-			dlog.Errorf("could not create HTTP request: %v", err)
-			w.WriteHeader(http.StatusBadRequest)
-		}
-		req.Header.Set("accept", "application/json")
-
-		res, err := httpClient.Do(req)
-		if err != nil {
-			dlog.Errorf("could not send HTTP request: %v", err)
+		token, err13 := client.GetGithubUserAccessToken(code)
+		if err13 != nil {
+			dlog.Errorln(err13)
 			w.WriteHeader(http.StatusInternalServerError)
-		}
-		defer res.Body.Close()
-
-		var t OAuthAccessResponse
-		if err := json.NewDecoder(res.Body).Decode(&t); err != nil {
-			dlog.Errorf("could not parse JSON response: %v", err)
-			w.WriteHeader(http.StatusBadRequest)
+			return
 		}
 
 		//w.Header().Set("Location", "/user?access_token="+t.AccessToken)
-		w.Header().Set("Location", "https://t.me/"+bot.Self.UserName+"?start="+t.AccessToken)
+		w.Header().Set("Location", "https://t.me/"+bot.Self.UserName+"?start="+token)
 		w.WriteHeader(http.StatusFound)
 	})
 
@@ -269,54 +120,47 @@ func main() {
 
 		dlog.Debugln("started cron job")
 
-		if usersRepos, err := database.GetUserRepos(db); err != nil {
-			dlog.Errorf("%s", err)
-		} else {
-			if len(usersRepos) > 0 {
-				for _, item := range usersRepos {
-					// dlog.Infof("ITEM in:  %#v %s", item, item.UpdatedAt.String())
-					go func(item *database.UsersReposResult) {
-						url := "https://api.github.com/repos/" + item.RepoName + "/commits?since=" + item.UpdatedAt.Add(time.Second*1).Format(time.RFC3339)
-						dlog.Debugln(url)
-
-						body, err := makeRequest(url, item.Token)
-						if err != nil {
-							dlog.Errorln(err)
-							return
-						}
-
-						var commits []CommitItem
-						if err := json.Unmarshal(body, &commits); err != nil {
-							dlog.Errorln(err)
-						}
-
-						if len(commits) > 0 {
-							// dlog.Debugf("ITEM in:  %#v %s", item, item.UpdatedAt.String())
-							dlog.Infof("%#v", commits)
-
-							for _, commit := range commits {
-								item.UpdatedAt = commit.Commit.Author.Date
-								telegramUserID, err := strconv.ParseInt(item.TelegramUserID, 10, 64)
-								if err != nil {
-									dlog.Errorln(err)
-								} else {
-									msg := tgbotapi.NewMessage(telegramUserID, "")
-									msg.Text += item.RepoName + " was updated by " + commit.Commit.Author.Name + "(" + commit.Commit.Author.Email + ") with commit:\n" + commit.Commit.Message
-									bot.Send(msg)
-								}
-							}
-
-							// dlog.Debugf("ITEM out: %#v %s", item, item.UpdatedAt.String())
-							err = database.UpdateUserRepoLink(db, item)
-							if err != nil {
-								dlog.Errorln(err)
-							}
-						}
-					}(item)
+		if usersRepos, err14 := database.GetUserRepos(db); err14 != nil {
+			dlog.Errorln(err14)
+		} else if len(usersRepos) > 0 {
+			for _, item := range usersRepos {
+				telegramUserID, err15 := strconv.ParseInt(item.TelegramUserID, 10, 64)
+				if err15 != nil {
+					dlog.Errorln(err15)
+					continue
 				}
+				// dlog.Infof("ITEM in:  %#v %s", item, item.UpdatedAt.String())
+				go func(item *database.UsersReposResult) {
+					commits, err16 := client.GetGithubUserRepoCommits(item)
+					if err16 != nil {
+						dlog.Errorln(err16)
+						return
+					}
+
+					if len(commits) > 0 {
+						// dlog.Debugf("ITEM in:  %#v %s", item, item.UpdatedAt.String())
+						dlog.Infof("%#v", commits)
+
+						for _, commit := range commits {
+							item.UpdatedAt = commit.Commit.Author.Date
+
+							msg := tgbotapi.NewMessage(telegramUserID, "")
+							msg.Text += item.RepoName + " was updated by " + commit.Commit.Author.Name + "(" + commit.Commit.Author.Email + ") with commit:\n" + commit.Commit.Message
+							_, err17 := bot.Send(msg)
+							if err17 != nil {
+								dlog.Errorln(err17)
+							}
+						}
+
+						// dlog.Debugf("ITEM out: %#v %s", item, item.UpdatedAt.String())
+						err18 := database.UpdateUserRepoLink(db, item)
+						if err18 != nil {
+							dlog.Errorln(err18)
+						}
+					}
+				}(item)
 			}
 		}
-
 	})
 	if err != nil {
 		dlog.Errorf("wrong cronjob params: %s", err)
@@ -327,103 +171,124 @@ func main() {
 	log.Fatal(http.ListenAndServe("0.0.0.0:"+strconv.Itoa(httpPort), nil))
 }
 
-// OAuthAccessResponse ...
-type OAuthAccessResponse struct {
-	AccessToken string `json:"access_token"`
-}
+func processTelegramMessages(updates tgbotapi.UpdatesChannel) {
+	for update := range updates {
+		if update.Message == nil { // ignore any non-Message Updates
+			continue
+		}
 
-// UserResponse ...
-type UserResponse struct {
-	Name     string `json:"name"`
-	UserName string `json:"login"`
-}
+		dlog.Infof("%s [%d] %s", update.Message.From.UserName, update.Message.From.ID, update.Message.Text)
 
-// Repo ...
-type Repo struct {
-	Name      string    `json:"name"`
-	FullName  string    `json:"full_name"`
-	UpdatedAt time.Time `json:"updated_at"`
-}
+		message := database.TelegramMessage{
+			UserID:   update.Message.From.ID,
+			UserName: update.Message.From.UserName,
+			Message:  update.Message.Text,
+			Date:     time.Unix(int64(update.Message.Date), 0),
+		}
 
-// CommitItem ...
-type CommitItem struct {
-	Commit Commit `json:"commit"`
-	URL    string `json:"url"`
-}
+		err2 := database.StoreTelegramMessage(db, message)
+		if err2 != nil {
+			dlog.Errorf("%s", err2)
+		}
 
-// Commit ...
-type Commit struct {
-	Author  Author `json:"author"`
-	Message string `json:"message"`
-}
+		if update.Message.IsCommand() {
+			msg := tgbotapi.NewMessage(update.Message.Chat.ID, "")
+			switch update.Message.Command() {
+			case "start", "startgroup", "repos":
+				ghuser := &database.GithubUser{
+					TelegramUserID: strconv.Itoa(update.Message.From.ID),
+				}
 
-// Author ...
-type Author struct {
-	Name  string    `json:"name"`
-	Email string    `json:"email"`
-	Date  time.Time `json:"date"`
-}
+				if update.Message.CommandArguments() != "" {
+					if user, err3 := client.GetGithubUser(update.Message.CommandArguments()); err3 == nil {
+						msg.Text = "Hi, " + user.Name
 
-func getGithubUser(code string) (*UserResponse, error) {
-	body, err := makeRequest("https://api.github.com/user", code)
-	if err != nil {
-		return nil, err
+						ghuser.Name = user.Name
+						ghuser.UserName = user.UserName
+						ghuser.Token = update.Message.CommandArguments()
+
+						dbuser, err4 := database.AddUserIfNotExist(db, ghuser)
+						if err4 != nil && err4.Error() != database.AlreadyExists {
+							msg.Text += "\nError on save your token, try /start again\n" + err4.Error()
+							_, err5 := bot.Send(msg)
+							if err5 != nil {
+								dlog.Errorln(err5)
+							}
+							return
+						}
+						ghuser.ID = dbuser.ID
+					} else {
+						msg.Text += "\nError on save your token, try /start again\n" + err3.Error()
+						_, err5 := bot.Send(msg)
+						if err5 != nil {
+							dlog.Errorln(err5)
+						}
+						return
+					}
+				} else {
+					if user, err20 := database.GetGithubUserFromDB(db, ghuser.TelegramUserID); err20 == nil {
+						ghuser.ID = user.ID
+						ghuser.Name = user.Name
+						ghuser.UserName = user.UserName
+						ghuser.Token = user.Token
+					} else {
+						msg.Text += "\nError on get your token, try /start again\n" + err20.Error()
+						_, err5 := bot.Send(msg)
+						if err5 != nil {
+							dlog.Errorln(err5)
+						}
+						return
+					}
+				}
+
+				if repos, err6 := client.GetGithubUserRepos(ghuser.Token, ghuser.UserName); err6 == nil {
+					msg2 := tgbotapi.NewMessage(update.Message.Chat.ID, "")
+					for _, repo := range repos {
+						msg2.Text += repo.Name + " - " + repo.FullName + " / " + repo.UpdatedAt.Format("2006-01-02 15:04:05") + "\n"
+
+						ghrepo := &database.GithubRepo{
+							Name:     repo.Name,
+							RepoName: repo.FullName,
+						}
+
+						if dbrepo, err7 := database.AddRepoIfNotExist(db, ghrepo); err7 != nil && err7.Error() != database.AlreadyExists {
+							dlog.Errorln(err7)
+						} else if err8 := database.AddRepoLinkIfNotExist(db, ghuser, dbrepo, repo.UpdatedAt); err8 != nil && err8.Error() != database.AlreadyExists {
+							dlog.Errorln(err8)
+						}
+					}
+
+					_, err9 := bot.Send(msg2)
+					if err9 != nil {
+						dlog.Errorln(err9)
+					}
+
+					return
+				}
+
+				text := `[Click here to authorize bot in github](https://github.com/login/oauth/authorize?client_id=` + clientID + `&redirect_uri=` + httpRedirectURI + `), and then press START again`
+				msg.ParseMode = "Markdown"
+				msg.Text = text
+				msg.DisableWebPagePreview = true
+			case "me":
+				if user, err10 := database.GetGithubUserFromDB(db, strconv.Itoa(update.Message.From.ID)); err10 == nil {
+					msg.Text = "Hi, " + user.Name
+				} else {
+					msg.Text = "type /start\n"
+					msg.Text += err10.Error()
+				}
+			case "help":
+				msg.Text = "type /start"
+			default:
+				msg.Text = "I don't know that command"
+			}
+			msg.ReplyToMessageID = update.Message.MessageID
+			_, err11 := bot.Send(msg)
+			if err11 != nil {
+				dlog.Errorln(err11)
+			}
+		}
 	}
-
-	var user UserResponse
-	if err := json.Unmarshal(body, &user); err != nil {
-		return nil, err
-	}
-
-	return &user, nil
-}
-
-func getGithubUserFromDB(id int) (*database.GithubUser, error) {
-	var returnModel database.GithubUser
-	sql := fmt.Sprintf("SELECT * FROM github_users WHERE telegram_user_id=%s;", strconv.Itoa(id))
-
-	result, err := database.QuerySQLObject(db, sql, returnModel)
-	if err != nil {
-		return nil, err
-	}
-
-	if returnModel, ok := result.Interface().(*database.GithubUser); ok && returnModel.UserName != "" {
-		return returnModel, nil
-	}
-
-	return nil, fmt.Errorf("User not found")
-}
-
-func getGithubUserRepos(code, username string) ([]*Repo, error) {
-	body, err := makeRequest("https://api.github.com/users/"+username+"/subscriptions", code)
-	if err != nil {
-		return nil, err
-	}
-
-	var repos []*Repo
-	if err := json.Unmarshal(body, &repos); err != nil {
-		return nil, fmt.Errorf("%s\n%s\n%s\n%s", err, string(body), "https://api.github.com/users/"+username+"/subscriptions", code)
-	}
-
-	return repos, nil
-}
-
-func makeRequest(url, token string) ([]byte, error) {
-	request, err := http.NewRequest("GET", url, nil)
-	request.Header.Set("Authorization", "token "+token)
-
-	resp, err := httpClient.Do(request)
-	if err != nil {
-		return nil, err
-	}
-	defer resp.Body.Close()
-
-	body, err := ioutil.ReadAll(resp.Body)
-	if err != nil {
-		return nil, err
-	}
-
-	return body, nil
 }
 
 func lookupEnvOrString(key string, defaultVal string) string {
