@@ -315,7 +315,7 @@ FROM
 	INNER JOIN users_repos ON github_repos.id = users_repos.repo_id
 	INNER JOIN github_users ON github_users.id = users_repos.user_id
 WHERE
-	users_repos.updated_at > DATETIME('now',  '-15 minutes');`
+	users_repos.updated_at < DATETIME('now',  '-15 minutes');`
 
 	result, err := QuerySQLList(db, returnModel, sql)
 	if err != nil {
