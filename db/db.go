@@ -184,7 +184,7 @@ func AddUserIfNotExist(db *sql.DB, user *GithubUser) (*GithubUser, error) {
 		return nil, err
 	}
 	if returnModel, ok := result.Interface().(*GithubUser); ok && returnModel.UserName != "" {
-		dlog.Debugf("already exists: %#v", returnModel)
+		// dlog.Debugf("already exists: %#v", returnModel)
 		return returnModel, fmt.Errorf(AlreadyExists)
 	}
 
@@ -217,7 +217,7 @@ func AddRepoIfNotExist(db *sql.DB, repo *GithubRepo) (*GithubRepo, error) {
 		return nil, err
 	}
 	if returnModel, ok := result.Interface().(*GithubRepo); ok && returnModel.RepoName != "" {
-		dlog.Debugf("already exists: %#v", returnModel)
+		// dlog.Debugf("already exists: %#v", returnModel)
 		return returnModel, fmt.Errorf(AlreadyExists)
 	}
 	res, err := db.Exec(
@@ -247,7 +247,7 @@ func AddRepoLinkIfNotExist(db *sql.DB, user *GithubUser, repo *GithubRepo, updat
 		return err
 	}
 	if returnModel, ok := result.Interface().(*UserRepo); ok && returnModel.UserID > 0 && returnModel.RepoID > 0 {
-		dlog.Debugf("already exists: %#v", returnModel)
+		// dlog.Debugf("already exists: %#v", returnModel)
 		return fmt.Errorf(AlreadyExists)
 	}
 
@@ -328,6 +328,27 @@ WHERE
 	}
 
 	return usersRepos, err
+}
+
+// GetUsersRepos ...
+func GetUsers(db *sql.DB) (users []*GithubUser, err error) {
+	var returnModel GithubUser
+	sql := `select
+	*
+FROM
+	github_users;`
+
+	result, err := QuerySQLList(db, returnModel, sql)
+	if err != nil {
+		return users, err
+	}
+	for _, item := range result {
+		if returnModel, ok := item.Interface().(*GithubUser); ok {
+			users = append(users, returnModel)
+		}
+	}
+
+	return users, err
 }
 
 // GetGithubUserFromDB ...

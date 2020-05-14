@@ -40,7 +40,8 @@ var (
 	telegramProxyPassword string
 	telegramDebug         bool
 
-	cronEvery string
+	checkReposEvery   string
+	checkCommitsEvery string
 )
 
 func main() {
@@ -59,7 +60,8 @@ func main() {
 	flag.StringVar(&telegramProxyPassword, "telegram_proxy_password", lookupEnvOrString("GO_GITHUB_LISTENER_TELEGRAM_PROXY_PASSWORD", telegramProxyPassword), "telegramProxyPassword")
 	flag.BoolVar(&telegramDebug, "telegram_debug", lookupEnvOrBool("GO_GITHUB_LISTENER_TELEGRAM_DEBUG", telegramDebug), "telegramDebug")
 
-	flag.StringVar(&cronEvery, "cron_every", lookupEnvOrString("GO_GITHUB_LISTENER_CRON_EVERY", "* * * * *"), "run cron job every")
+	flag.StringVar(&checkReposEvery, "check_repos_every", lookupEnvOrString("GO_GITHUB_LISTENER_CHECK_REPOS_EVERY", "*/15 * * * *"), "run cron job for check repos every")
+	flag.StringVar(&checkCommitsEvery, "check_commits_every", lookupEnvOrString("GO_GITHUB_LISTENER_CHECK_COMMITS_EVERY", "* * * * *"), "run cron job for check commits every")
 
 	flag.Parse()
 	log.SetFlags(0)
@@ -114,11 +116,11 @@ func main() {
 	dlog.Debugf("Listening on port %d", httpPort)
 
 	cron := cron.New()
-	_, err = cron.AddFunc(cronEvery, func() {
+	_, err = cron.AddFunc(checkCommitsEvery, func() {
 		// ctx, cancel := context.WithTimeout(context.Background(), time.Duration(cronDisableTimeout)*time.Second)
 		// defer cancel()
 
-		dlog.Debugln("started cron job")
+		dlog.Debugln("started check commits cron job")
 
 		if usersRepos, err14 := database.GetUserRepos(db); err14 != nil {
 			dlog.Errorln(err14)
@@ -164,6 +166,36 @@ func main() {
 	})
 	if err != nil {
 		dlog.Errorf("wrong cronjob params: %s", err)
+	}
+	_, err2 := cron.AddFunc(checkReposEvery, func() {
+		dlog.Debugln("started check repos cron job")
+
+		if users, err14 := database.GetUsers(db); err14 != nil {
+			dlog.Errorln(err14)
+		} else if len(users) > 0 {
+			for _, ghuser := range users {
+				if repos, err6 := client.GetGithubUserRepos(ghuser.Token, ghuser.UserName); err6 == nil {
+					for _, repo := range repos {
+
+						ghrepo := &database.GithubRepo{
+							Name:     repo.Name,
+							RepoName: repo.FullName,
+						}
+
+						if dbrepo, err7 := database.AddRepoIfNotExist(db, ghrepo); err7 != nil && err7.Error() != database.AlreadyExists {
+							dlog.Errorln(err7)
+						} else if err8 := database.AddRepoLinkIfNotExist(db, ghuser, dbrepo, repo.UpdatedAt); err8 != nil && err8.Error() != database.AlreadyExists {
+							dlog.Errorln(err8)
+						}
+					}
+				} else {
+					dlog.Errorln(err6)
+				}
+			}
+		}
+	})
+	if err2 != nil {
+		dlog.Errorf("wrong cronjob params: %s", err2)
 	}
 	cron.Start()
 	defer cron.Stop()
