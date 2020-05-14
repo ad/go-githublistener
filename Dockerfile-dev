@@ -16,7 +16,6 @@ COPY --from=builder /usr/share/zoneinfo /usr/share/zoneinfo
 COPY --from=builder /etc/ssl/certs/ca-certificates.crt /etc/ssl/certs/
 COPY --from=builder /etc/passwd /etc/passwd
 COPY --from=builder /etc/group /etc/group
-COPY /db/githublistener.db ./db/githublistener.db
 COPY --from=builder /go/bin/go-githublistener /go/bin/go-githublistener
 
 USER appuser:appuser
