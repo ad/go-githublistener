@@ -201,7 +201,11 @@ func processTelegramMessages(updates tgbotapi.UpdatesChannel) {
 
 				if update.Message.Command() != "repos" && update.Message.CommandArguments() != "" {
 					if user, err3 := client.GetGithubUser(update.Message.CommandArguments()); err3 == nil {
-						msg.Text = "Hi, " + user.Name
+						if user.Name != "" {
+							msg.Text = "Hi, " + user.Name
+						} else {
+							msg.Text = "Hi, " + user.UserName
+						}
 
 						ghuser.Name = user.Name
 						ghuser.UserName = user.UserName
@@ -262,7 +266,11 @@ func processTelegramMessages(updates tgbotapi.UpdatesChannel) {
 				msg.DisableWebPagePreview = true
 			case "me":
 				if user, err10 := database.GetGithubUserFromDB(db, strconv.Itoa(update.Message.From.ID)); err10 == nil {
-					msg.Text = "Hi, " + user.Name
+					if user.Name != "" {
+						msg.Text = "Hi, " + user.Name
+					} else {
+						msg.Text = "Hi, " + user.UserName
+					}
 				} else {
 					msg.Text = "type /start\n"
 					msg.Text += err10.Error()
