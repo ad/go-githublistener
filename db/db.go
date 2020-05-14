@@ -330,7 +330,7 @@ WHERE
 	return usersRepos, err
 }
 
-// GetUsersRepos ...
+// GetUsers ...
 func GetUsers(db *sql.DB) (users []*GithubUser, err error) {
 	var returnModel GithubUser
 	sql := `select
