@@ -58,7 +58,7 @@ type Client struct {
 func NewClient(clientID, clientSecret string) *Client {
 	client := &Client{
 		HTTPClient: http.Client{
-			Timeout: time.Duration(5),
+			Timeout: time.Duration(5 * time.Second),
 		},
 		clientID:     clientID,
 		clientSecret: clientSecret,
