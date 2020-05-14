@@ -75,15 +75,22 @@ func (c *Client) GetGithubUserAccessToken(code string) (token string, err error)
 		return "", fmt.Errorf("could not create HTTP request: %v", err)
 	}
 
+	req.Header.Set("Accept", "application/json")
+
 	res, err := c.HTTPClient.Do(req)
 	if err != nil {
 		return "", fmt.Errorf("could not send HTTP request: %v", err)
 	}
 	defer func() { _ = res.Body.Close() }()
 
+	body, err2 := ioutil.ReadAll(res.Body)
+	if err2 != nil {
+		return "", err2
+	}
+
 	var t OAuthAccessResponse
-	if err := json.NewDecoder(res.Body).Decode(&t); err != nil {
-		return "", fmt.Errorf("could not parse JSON response: %v", err)
+	if err := json.Unmarshal(body, &t); err != nil {
+		return "", fmt.Errorf("could not parse JSON response: %v\n%s", err, string(body))
 	}
 
 	return t.AccessToken, nil
@@ -91,7 +98,9 @@ func (c *Client) GetGithubUserAccessToken(code string) (token string, err error)
 
 // GetGithubUser ...
 func (c *Client) GetGithubUser(code string) (*UserResponse, error) {
-	body, err := c.MakeRequest("https://api.github.com/user", code)
+	url := "https://api.github.com/user"
+
+	body, err := c.MakeRequest(url, code)
 	if err != nil {
 		return nil, err
 	}
@@ -133,8 +142,10 @@ func (c *Client) GetGithubUserRepos(code, username string) ([]*Repo, error) {
 	url := "https://api.github.com/users/" + username + "/subscriptions"
 	if body, err := c.MakeRequest(url, code); err == nil {
 		if err2 := json.Unmarshal(body, &repos); err2 != nil {
-			return nil, fmt.Errorf("%s\n%s\n%s\n%s", err2, string(body), "https://api.github.com/users/"+username+"/subscriptions", code)
+			return nil, fmt.Errorf("%s\n%s", err2, string(body))
 		}
+	} else {
+		return nil, fmt.Errorf("%s\n%s", err, string(body))
 	}
 
 	return repos, nil
@@ -142,16 +153,15 @@ func (c *Client) GetGithubUserRepos(code, username string) ([]*Repo, error) {
 
 // GetGithubUserRepoCommits ...
 func (c *Client) GetGithubUserRepoCommits(item *database.UsersReposResult) ([]*CommitItem, error) {
-	url := "https://api.github.com/repos/" + item.RepoName + "/commits?since=" + item.UpdatedAt.Add(time.Second*1).Format(time.RFC3339)
-
-	body, err := c.MakeRequest(url, item.Token)
-	if err != nil {
-		return nil, err
-	}
-
 	var commits []*CommitItem
-	if err := json.Unmarshal(body, &commits); err != nil {
-		return nil, err
+
+	url := "https://api.github.com/repos/" + item.RepoName + "/commits?since=" + item.UpdatedAt.Add(time.Second*1).Format(time.RFC3339)
+	if body, err := c.MakeRequest(url, item.Token); err == nil {
+		if err2 := json.Unmarshal(body, &commits); err2 != nil {
+			return nil, fmt.Errorf("%s\n%s", err2, string(body))
+		}
+	} else {
+		return nil, fmt.Errorf("%s\n%s", err, string(body))
 	}
 
 	return commits, nil

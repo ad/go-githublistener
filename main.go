@@ -90,7 +90,7 @@ func main() {
 	go processTelegramMessages(updates)
 
 	http.HandleFunc("/oauth/redirect", func(w http.ResponseWriter, r *http.Request) {
-		dlog.Debugf("parse query: %#v", r)
+		// dlog.Debugf("parse query: %#v", r)
 
 		err12 := r.ParseForm()
 		if err12 != nil {
@@ -199,7 +199,7 @@ func processTelegramMessages(updates tgbotapi.UpdatesChannel) {
 					TelegramUserID: strconv.Itoa(update.Message.From.ID),
 				}
 
-				if update.Message.CommandArguments() != "" {
+				if update.Message.Command() != "repos" && update.Message.CommandArguments() != "" {
 					if user, err3 := client.GetGithubUser(update.Message.CommandArguments()); err3 == nil {
 						msg.Text = "Hi, " + user.Name
 
@@ -217,13 +217,6 @@ func processTelegramMessages(updates tgbotapi.UpdatesChannel) {
 							return
 						}
 						ghuser.ID = dbuser.ID
-					} else {
-						msg.Text += "\nError on save your token, try /start again\n" + err3.Error()
-						_, err5 := bot.Send(msg)
-						if err5 != nil {
-							dlog.Errorln(err5)
-						}
-						return
 					}
 				} else {
 					if user, err20 := database.GetGithubUserFromDB(db, ghuser.TelegramUserID); err20 == nil {
@@ -231,39 +224,36 @@ func processTelegramMessages(updates tgbotapi.UpdatesChannel) {
 						ghuser.Name = user.Name
 						ghuser.UserName = user.UserName
 						ghuser.Token = user.Token
-					} else {
-						msg.Text += "\nError on get your token, try /start again\n" + err20.Error()
-						_, err5 := bot.Send(msg)
-						if err5 != nil {
-							dlog.Errorln(err5)
-						}
-						return
 					}
 				}
 
-				if repos, err6 := client.GetGithubUserRepos(ghuser.Token, ghuser.UserName); err6 == nil {
-					msg2 := tgbotapi.NewMessage(update.Message.Chat.ID, "")
-					for _, repo := range repos {
-						msg2.Text += repo.Name + " - " + repo.FullName + " / " + repo.UpdatedAt.Format("2006-01-02 15:04:05") + "\n"
+				if ghuser.ID != 0 {
+					if repos, err6 := client.GetGithubUserRepos(ghuser.Token, ghuser.UserName); err6 == nil {
+						msg2 := tgbotapi.NewMessage(update.Message.Chat.ID, "Your repos:\n")
+						for _, repo := range repos {
+							msg2.Text += repo.Name + " - " + repo.FullName + " / " + repo.UpdatedAt.Format("2006-01-02 15:04:05") + "\n"
 
-						ghrepo := &database.GithubRepo{
-							Name:     repo.Name,
-							RepoName: repo.FullName,
+							ghrepo := &database.GithubRepo{
+								Name:     repo.Name,
+								RepoName: repo.FullName,
+							}
+
+							if dbrepo, err7 := database.AddRepoIfNotExist(db, ghrepo); err7 != nil && err7.Error() != database.AlreadyExists {
+								dlog.Errorln(err7)
+							} else if err8 := database.AddRepoLinkIfNotExist(db, ghuser, dbrepo, repo.UpdatedAt); err8 != nil && err8.Error() != database.AlreadyExists {
+								dlog.Errorln(err8)
+							}
 						}
 
-						if dbrepo, err7 := database.AddRepoIfNotExist(db, ghrepo); err7 != nil && err7.Error() != database.AlreadyExists {
-							dlog.Errorln(err7)
-						} else if err8 := database.AddRepoLinkIfNotExist(db, ghuser, dbrepo, repo.UpdatedAt); err8 != nil && err8.Error() != database.AlreadyExists {
-							dlog.Errorln(err8)
+						_, err9 := bot.Send(msg2)
+						if err9 != nil {
+							dlog.Errorln(err9)
 						}
-					}
 
-					_, err9 := bot.Send(msg2)
-					if err9 != nil {
-						dlog.Errorln(err9)
+						return
+					} else {
+						dlog.Errorln(err6)
 					}
-
-					return
 				}
 
 				text := `[Click here to authorize bot in github](https://github.com/login/oauth/authorize?client_id=` + clientID + `&redirect_uri=` + httpRedirectURI + `), and then press START again`
