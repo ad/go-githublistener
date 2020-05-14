@@ -214,7 +214,7 @@ func processTelegramMessages(updates tgbotapi.UpdatesChannel) {
 							if err5 != nil {
 								dlog.Errorln(err5)
 							}
-							return
+							continue
 						}
 						ghuser.ID = dbuser.ID
 					}
@@ -250,7 +250,7 @@ func processTelegramMessages(updates tgbotapi.UpdatesChannel) {
 							dlog.Errorln(err9)
 						}
 
-						return
+						continue
 					} else {
 						dlog.Errorln(err6)
 					}
