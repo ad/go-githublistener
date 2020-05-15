@@ -161,7 +161,9 @@ func main() {
 							}
 
 							msg := tgbotapi.NewMessage(telegramUserID, "")
-							msg.Text += item.RepoName + " was updated by " + commit.Commit.Author.Name + "(" + commit.Commit.Author.Email + ") with commit:\n" + commit.Commit.Message
+							msg.ParseMode = "Markdown"
+							msg.DisableWebPagePreview = true
+							msg.Text += "[" + item.RepoName + "](https://github.com/" + item.RepoName + ") was updated by [" + commit.Commit.Author.Name + "](https://github.com/" + commit.Commit.Author.Name + ") with new [commit](" + commit.URL + "):\n" + commit.Commit.Message
 							_, err17 := bot.Send(msg)
 							if err17 != nil {
 								dlog.Errorln(err17)
@@ -281,7 +283,7 @@ func processTelegramMessages(updates tgbotapi.UpdatesChannel) {
 					if repos, err6 := client.GetGithubUserRepos(ghuser.Token, ghuser.UserName); err6 == nil {
 						msg2 := tgbotapi.NewMessage(update.Message.Chat.ID, "Your repos:\n")
 						for _, repo := range repos {
-							msg2.Text += repo.Name + " - " + repo.FullName + " / " + repo.UpdatedAt.Format("2006-01-02 15:04:05") + "\n"
+							msg2.Text += "[" + repo.FullName + "](https://github.com/" + repo.FullName + ") updated at:" + repo.UpdatedAt.Format("2006-01-02 15:04:05") + "\n"
 
 							ghrepo := &database.GithubRepo{
 								Name:     repo.Name,
@@ -294,7 +296,8 @@ func processTelegramMessages(updates tgbotapi.UpdatesChannel) {
 								dlog.Errorln(err8)
 							}
 						}
-
+						msg2.ParseMode = "Markdown"
+						msg2.DisableWebPagePreview = true
 						_, err9 := bot.Send(msg2)
 						if err9 != nil {
 							dlog.Errorln(err9)
