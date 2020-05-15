@@ -48,16 +48,16 @@ type GithubRepo struct {
 // UserRepo ...
 type UserRepo struct {
 	ID        int64     `sql:"id"`
-	UserID    int       `sql:"user_id"`
-	RepoID    int       `sql:"repo_id"`
+	UserID    int64     `sql:"user_id"`
+	RepoID    int64     `sql:"repo_id"`
 	CreatedAt time.Time `sql:"created_at"`
 	UpdatedAt time.Time `sql:"updated_at"`
 }
 
 // UsersReposResult ...
 type UsersReposResult struct {
-	UserID         int
-	RepoID         int
+	UserID         int64
+	RepoID         int64
 	TelegramUserID string
 	Token          string
 	RepoName       string

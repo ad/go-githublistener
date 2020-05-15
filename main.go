@@ -136,12 +136,24 @@ func main() {
 					commits, err16 := client.GetGithubUserRepoCommits(item)
 					if err16 != nil {
 						dlog.Errorln(err16)
+						if err16.Error() == "repo not found" {
+							if errDeleteRepo := database.DeleteRepoUserLinkDB(db, &database.GithubUser{ID: item.UserID}, &database.GithubRepo{ID: item.RepoID}); err == nil {
+								dlog.Infof("%s %s %d", item.RepoName, "removed for", item.UserID)
+								msg := tgbotapi.NewMessage(telegramUserID, "repo "+item.RepoName+" not found, removed")
+								_, err9 := bot.Send(msg)
+								if err9 != nil {
+									dlog.Errorln(err9)
+								}
+							} else {
+								dlog.Errorln(errDeleteRepo)
+							}
+						}
 						return
 					}
 
 					if len(commits) > 0 {
 						// dlog.Debugf("ITEM in:  %#v %s", item, item.UpdatedAt.String())
-						dlog.Infof("%#v", commits)
+						// dlog.Infof("%#v", commits)
 
 						for _, commit := range commits {
 							if commit.Commit.Author.Date.After(item.UpdatedAt) {
@@ -314,7 +326,7 @@ func processTelegramMessages(updates tgbotapi.UpdatesChannel) {
 					if ghrepo, errGetRepo := database.GetGithubRepoByNameFromDB(db, update.Message.CommandArguments()); errGetRepo == nil {
 						if errDeleteRepo := database.DeleteRepoUserLinkDB(db, ghuser, ghrepo); err == nil {
 							dlog.Infof("%s %s %s", ghuser.Name, "removed", ghrepo.RepoName)
-							msg.Text = ghrepo.RepoName + " removed"
+							msg.Text = ghrepo.RepoName + " removed, uncheck Watching in Github interface"
 						} else {
 							msg.Text += errDeleteRepo.Error()
 						}

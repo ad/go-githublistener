@@ -28,6 +28,12 @@ type Repo struct {
 	UpdatedAt time.Time `json:"updated_at"`
 }
 
+// RepoErrorAnswer ...
+type RepoErrorAnswer struct {
+	Message          string `json:"message"`
+	DocumentationURL string `json:"documentation_url"`
+}
+
 // CommitItem ...
 type CommitItem struct {
 	Commit Commit `json:"commit"`
@@ -158,7 +164,17 @@ func (c *Client) GetGithubUserRepoCommits(item *database.UsersReposResult) ([]*C
 	url := "https://api.github.com/repos/" + item.RepoName + "/commits?since=" + item.UpdatedAt.Add(time.Second*1).Format(time.RFC3339)
 	if body, err := c.MakeRequest(url, item.Token); err == nil {
 		if err2 := json.Unmarshal(body, &commits); err2 != nil {
-			return nil, fmt.Errorf("%s\n%s", err2, string(body))
+			var repoErrorAnswer RepoErrorAnswer
+			if err2 := json.Unmarshal(body, &repoErrorAnswer); err2 == nil {
+				// {"message":"Not Found","documentation_url":"https://developer.github.com/v3/repos/commits/#list-commits-on-a-repository"}
+				if repoErrorAnswer.Message == "Not Found" {
+					return nil, fmt.Errorf("repo not found")
+				} else {
+					return nil, fmt.Errorf("%s\n%s", repoErrorAnswer.Message, string(body))
+				}
+			} else {
+				return nil, fmt.Errorf("%s\n%s", err2, string(body))
+			}
 		}
 	} else {
 		return nil, fmt.Errorf("%s\n%s", err, string(body))
