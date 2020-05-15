@@ -36,8 +36,10 @@ type RepoErrorAnswer struct {
 
 // CommitItem ...
 type CommitItem struct {
-	Commit Commit `json:"commit"`
-	URL    string `json:"url"`
+	SHA     string `json:"sha"`
+	Commit  Commit `json:"commit"`
+	URL     string `json:"url"`
+	HTMLUrl string `json:"html_url"`
 }
 
 // Commit ...
