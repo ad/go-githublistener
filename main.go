@@ -307,6 +307,22 @@ func processTelegramMessages(updates tgbotapi.UpdatesChannel) {
 					msg.Text = "type /start\n"
 					msg.Text += err10.Error()
 				}
+			case "delete":
+				if ghuser, err10 := database.GetGithubUserFromDB(db, strconv.Itoa(update.Message.From.ID)); err10 == nil {
+					if ghrepo, errGetRepo := database.GetGithubRepoByNameFromDB(db, update.Message.CommandArguments()); errGetRepo == nil {
+						if errDeleteRepo := database.DeleteRepoUserLinkDB(db, ghuser, ghrepo); err == nil {
+							dlog.Infof("%s %s %s", ghuser.Name, "removed", ghrepo.RepoName)
+							msg.Text = ghrepo.RepoName + " removed"
+						} else {
+							msg.Text += errDeleteRepo.Error()
+						}
+					} else {
+						msg.Text = errGetRepo.Error()
+					}
+				} else {
+					msg.Text = "type /start\n"
+					msg.Text += err10.Error()
+				}
 			case "help":
 				msg.Text = "type /start"
 			default:

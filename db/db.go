@@ -15,6 +15,7 @@ import (
 const (
 	AlreadyExists = "already exists"
 	UserNotFound  = "user not found"
+	RepoNotFound  = "repo not found"
 )
 
 // TelegramMessage ...
@@ -365,4 +366,34 @@ func GetGithubUserFromDB(db *sql.DB, id string) (*GithubUser, error) {
 	}
 
 	return nil, fmt.Errorf(UserNotFound)
+}
+
+// GetGithubRepoByNameFromDB ...
+func GetGithubRepoByNameFromDB(db *sql.DB, repo_name string) (*GithubRepo, error) {
+	var returnModel GithubRepo
+
+	result, err := QuerySQLObject(db, returnModel, `SELECT * FROM github_repos WHERE repo_name = ?;`, repo_name)
+	if err != nil {
+		return nil, err
+	}
+
+	if returnModel, ok := result.Interface().(*GithubRepo); ok && returnModel.RepoName != "" {
+		return returnModel, nil
+	}
+
+	return nil, fmt.Errorf(RepoNotFound)
+}
+
+// DeleteRepoUserLinkDB ...
+func DeleteRepoUserLinkDB(db *sql.DB, user *GithubUser, repo *GithubRepo) error {
+	_, err := db.Exec(
+		"DELETE FROM users_repos WHERE user_id = ? AND repo_id = ?;",
+		user.ID,
+		repo.ID)
+
+	if err != nil {
+		return err
+	}
+
+	return nil
 }
