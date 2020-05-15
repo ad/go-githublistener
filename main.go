@@ -144,7 +144,9 @@ func main() {
 						dlog.Infof("%#v", commits)
 
 						for _, commit := range commits {
-							item.UpdatedAt = commit.Commit.Author.Date
+							if commit.Commit.Author.Date.After(item.UpdatedAt) {
+								item.UpdatedAt = commit.Commit.Author.Date
+							}
 
 							msg := tgbotapi.NewMessage(telegramUserID, "")
 							msg.Text += item.RepoName + " was updated by " + commit.Commit.Author.Name + "(" + commit.Commit.Author.Email + ") with commit:\n" + commit.Commit.Message
