@@ -5,6 +5,7 @@ import (
 	"log"
 	"net/http"
 	"os"
+	"regexp"
 	"strconv"
 	"time"
 
@@ -325,20 +326,57 @@ func processTelegramMessages(updates tgbotapi.UpdatesChannel) {
 					msg.Text += err10.Error()
 				}
 			case "delete":
-				if ghuser, err10 := database.GetGithubUserFromDB(db, strconv.Itoa(update.Message.From.ID)); err10 == nil {
-					if ghrepo, errGetRepo := database.GetGithubRepoByNameFromDB(db, update.Message.CommandArguments()); errGetRepo == nil {
-						if errDeleteRepo := database.DeleteRepoUserLinkDB(db, ghuser, ghrepo); err == nil {
-							dlog.Infof("%s %s %s", ghuser.Name, "removed", ghrepo.RepoName)
-							msg.Text = ghrepo.RepoName + " removed, uncheck Watching in Github interface"
+				if checkRepoName(update.Message.CommandArguments()) {
+					if ghuser, err10 := database.GetGithubUserFromDB(db, strconv.Itoa(update.Message.From.ID)); err10 == nil {
+						if ghrepo, errGetRepo := database.GetGithubRepoByNameFromDB(db, update.Message.CommandArguments()); errGetRepo == nil {
+							if errDeleteRepo := database.DeleteRepoUserLinkDB(db, ghuser, ghrepo); err == nil {
+								dlog.Infof("%s %s %s", ghuser.Name, "removed", ghrepo.RepoName)
+								msg.Text = ghrepo.RepoName + " removed, uncheck Watching in Github interface"
+							} else {
+								msg.Text += errDeleteRepo.Error()
+							}
 						} else {
-							msg.Text += errDeleteRepo.Error()
+							msg.Text = errGetRepo.Error()
 						}
 					} else {
-						msg.Text = errGetRepo.Error()
+						msg.Text = "type /start\n"
+						msg.Text += err10.Error()
 					}
 				} else {
-					msg.Text = "type /start\n"
-					msg.Text += err10.Error()
+					msg.Text = "wrong repo format, try username/reponame instead"
+				}
+			case "add":
+				if checkRepoName(update.Message.CommandArguments()) {
+					if ghuser, err10 := database.GetGithubUserFromDB(db, strconv.Itoa(update.Message.From.ID)); err10 == nil {
+						if ghrepo, errCheckRepo := database.GetGithubRepoByNameFromDB(db, update.Message.CommandArguments()); errCheckRepo == nil {
+							if err8 := database.AddRepoLinkIfNotExist(db, ghuser, ghrepo, time.Now()); err8 != nil && err8.Error() != database.AlreadyExists {
+								dlog.Errorln(err8)
+							} else {
+								msg.Text = ghrepo.RepoName + " added"
+							}
+						} else {
+							if repo, errGetRepo := client.GetGithubRepo(ghuser.Token, update.Message.CommandArguments()); errGetRepo == nil {
+								ghrepo := &database.GithubRepo{
+									Name:     repo.Name,
+									RepoName: repo.FullName,
+								}
+								if dbrepo, err7 := database.AddRepoIfNotExist(db, ghrepo); err7 != nil && err7.Error() != database.AlreadyExists {
+									dlog.Errorln(err7)
+								} else if err8 := database.AddRepoLinkIfNotExist(db, ghuser, dbrepo, repo.UpdatedAt); err8 != nil && err8.Error() != database.AlreadyExists {
+									dlog.Errorln(err8)
+								} else {
+									msg.Text = ghrepo.RepoName + " added"
+								}
+							} else {
+								msg.Text = ghrepo.RepoName + " not found"
+							}
+						}
+					} else {
+						msg.Text = "type /start\n"
+						msg.Text += err10.Error()
+					}
+				} else {
+					msg.Text = "wrong repo format, try username/reponame instead"
 				}
 			case "help":
 				msg.Text = "type /start"
@@ -352,6 +390,11 @@ func processTelegramMessages(updates tgbotapi.UpdatesChannel) {
 			}
 		}
 	}
+}
+
+func checkRepoName(s string) bool {
+	re := regexp.MustCompile(`^([\w,\-,\_]+)\/([\w,\-,\_]+)$`)
+	return re.Match([]byte(s))
 }
 
 func lookupEnvOrString(key string, defaultVal string) string {

@@ -159,6 +159,22 @@ func (c *Client) GetGithubUserRepos(code, username string) ([]*Repo, error) {
 	return repos, nil
 }
 
+// GetGithubRepo ...
+func (c *Client) GetGithubRepo(code, reponame string) (*Repo, error) {
+	var repo *Repo
+
+	url := "https://api.github.com/repos/" + reponame
+	if body, err := c.MakeRequest(url, code); err == nil {
+		if err2 := json.Unmarshal(body, &repo); err2 != nil {
+			return nil, fmt.Errorf("%s\n%s", err2, string(body))
+		}
+	} else {
+		return nil, fmt.Errorf("%s\n%s", err, string(body))
+	}
+
+	return repo, nil
+}
+
 // GetGithubUserRepoCommits ...
 func (c *Client) GetGithubUserRepoCommits(item *database.UsersReposResult) ([]*CommitItem, error) {
 	var commits []*CommitItem
@@ -171,12 +187,10 @@ func (c *Client) GetGithubUserRepoCommits(item *database.UsersReposResult) ([]*C
 				// {"message":"Not Found","documentation_url":"https://developer.github.com/v3/repos/commits/#list-commits-on-a-repository"}
 				if repoErrorAnswer.Message == "Not Found" {
 					return nil, fmt.Errorf("repo not found")
-				} else {
-					return nil, fmt.Errorf("%s\n%s", repoErrorAnswer.Message, string(body))
 				}
-			} else {
-				return nil, fmt.Errorf("%s\n%s", err2, string(body))
+				return nil, fmt.Errorf("%s\n%s", repoErrorAnswer.Message, string(body))
 			}
+			return nil, fmt.Errorf("%s\n%s", err2, string(body))
 		}
 	} else {
 		return nil, fmt.Errorf("%s\n%s", err, string(body))
