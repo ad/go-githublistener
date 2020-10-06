@@ -1,4 +1,5 @@
 # go-githublistener
+![Release](https://github.com/ad/go-githublistener/workflows/Release/badge.svg)
 
 Register your new application on Github: https://github.com/settings/applications/new
 
