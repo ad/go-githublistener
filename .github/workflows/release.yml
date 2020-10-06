@@ -26,8 +26,8 @@ jobs:
       - name: Build Linux binary
         run: GOOS=linux GOARCH=amd64 go build -o $(echo $GITHUB_REPOSITORY | cut -d "/" -f 2)-linux64 -a -ldflags '-s -w' .
      
-      - name: Build ARM binary
-        run: GOOS=linux GOARCH=arm GOARM=6 go build -o $(echo $GITHUB_REPOSITORY | cut -d "/" -f 2)-arm -a -ldflags '-s -w' .
+      #- name: Build ARM binary
+      #  run: GOOS=linux GOARCH=arm GOARM=6 go build -o $(echo $GITHUB_REPOSITORY | cut -d "/" -f 2)-arm -a -ldflags '-s -w' .
         
       - name: Build windows binary
         run: GOOS=windows GOARCH=amd64 go build -o $(echo $GITHUB_REPOSITORY | cut -d "/" -f 2).exe -a -ldflags '-s -w' .
