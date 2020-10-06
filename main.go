@@ -161,8 +161,8 @@ func main() {
 								item.UpdatedAt = commit.Commit.Author.Date
 							}
 
-							if commit.Commit.Commiter.Date.After(item.UpdatedAt) {
-								item.UpdatedAt = commit.Commit.Commiter.Date
+							if commit.Commit.Committer.Date.After(item.UpdatedAt) {
+								item.UpdatedAt = commit.Commit.Committer.Date
 							}
 
 							msg := tgbotapi.NewMessage(telegramUserID, "")
