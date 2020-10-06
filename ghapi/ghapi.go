@@ -44,12 +44,20 @@ type CommitItem struct {
 
 // Commit ...
 type Commit struct {
-	Author  Author `json:"author"`
-	Message string `json:"message"`
+	Author    Author    `json:"author"`
+	Message   string    `json:"message"`
+	Committer Committer `json:"committer"`
 }
 
 // Author ...
 type Author struct {
+	Name  string    `json:"name"`
+	Email string    `json:"email"`
+	Date  time.Time `json:"date"`
+}
+
+// Committer ...
+type Committer struct {
 	Name  string    `json:"name"`
 	Email string    `json:"email"`
 	Date  time.Time `json:"date"`

@@ -161,6 +161,10 @@ func main() {
 								item.UpdatedAt = commit.Commit.Author.Date
 							}
 
+							if commit.Commit.Commiter.Date.After(item.UpdatedAt) {
+								item.UpdatedAt = commit.Commit.Commiter.Date
+							}
+
 							msg := tgbotapi.NewMessage(telegramUserID, "")
 							msg.ParseMode = "Markdown"
 							msg.DisableWebPagePreview = true
