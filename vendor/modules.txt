@@ -17,7 +17,7 @@ github.com/robfig/cron/v3
 # github.com/technoweenie/multipartstreamer v1.0.1
 ## explicit
 github.com/technoweenie/multipartstreamer
-# golang.org/x/net v0.0.0-20200506145744-7e3656a0809f
+# golang.org/x/net v0.7.0
 ## explicit
 golang.org/x/net/internal/socks
 golang.org/x/net/proxy
