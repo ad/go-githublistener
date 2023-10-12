@@ -9,6 +9,6 @@ require (
 	github.com/mattn/go-sqlite3 v2.0.3+incompatible
 	github.com/robfig/cron/v3 v3.0.1
 	github.com/technoweenie/multipartstreamer v1.0.1 // indirect
-	golang.org/x/net v0.7.0
+	golang.org/x/net v0.17.0
 	gopkg.in/telegram-bot-api.v4 v4.6.4
 )
