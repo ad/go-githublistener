@@ -12,13 +12,13 @@ github.com/lazada/sqle/strcase
 ## explicit
 github.com/mattn/go-sqlite3
 # github.com/robfig/cron/v3 v3.0.1
-## explicit
+## explicit; go 1.12
 github.com/robfig/cron/v3
 # github.com/technoweenie/multipartstreamer v1.0.1
 ## explicit
 github.com/technoweenie/multipartstreamer
-# golang.org/x/net v0.23.0
-## explicit
+# golang.org/x/net v0.33.0
+## explicit; go 1.18
 golang.org/x/net/internal/socks
 golang.org/x/net/proxy
 # gopkg.in/telegram-bot-api.v4 v4.6.4
